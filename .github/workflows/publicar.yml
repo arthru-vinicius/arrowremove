@@ -1,0 +1,137 @@
+name: publicar
+
+# Em todo push e PR a imagem e construida e testada. O push para o ghcr.io
+# acontece so quando a referencia e uma tag 'vX.Y.Z' -- e o formato que a CLI
+# 'homelab update' reconhece: ela descarta qualquer tag que nao case com isso
+# ao procurar "a versao mais nova". Ver o README, secao "Publicar uma versao".
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # As duas invariantes do conteudo servido, verificadas antes de qualquer
+      # coisa: os scripts precisam compilar, e precisam ser ASCII puro com
+      # quebra LF. Ver o cabecalho do install.ps1 para o porque do ASCII.
+      - name: Validar os scripts PowerShell
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($f in 'install.ps1', 'revert.ps1') {
+              $erros = $null
+              $null = [System.Management.Automation.Language.Parser]::ParseFile(
+                  (Resolve-Path $f), [ref]$null, [ref]$erros)
+              if ($erros.Count) {
+                  $erros | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
+                  throw "$f nao compila"
+              }
+
+              $bytes = [IO.File]::ReadAllBytes((Resolve-Path $f))
+
+              $naoAscii = $bytes | Where-Object { $_ -gt 127 }
+              if ($naoAscii.Count) {
+                  throw "$f tem $($naoAscii.Count) byte(s) acima de 127 -- os scripts precisam ser ASCII puro"
+              }
+
+              if ($bytes -contains 13) {
+                  throw "$f tem CR -- a quebra de linha precisa ser LF"
+              }
+
+              Write-Host "ok  $f  ($($bytes.Length) bytes)"
+          }
+
+      - name: Construir a imagem
+        run: docker build -t arrowremove:teste .
+
+      - name: Validar a configuracao do nginx
+        run: docker run --rm arrowremove:teste nginx -t
+
+      # O container sobe com EXATAMENTE a postura de producao -- read_only,
+      # os tres tmpfs e no-new-privileges, iguais aos do
+      # docker-compose.yml.j2 do homelab. E o unico lugar onde isso e provado
+      # antes de chegar no servidor: um caminho de escrita novo do nginx
+      # apareceria aqui como container em laco de reinicio, e nao la.
+      - name: Subir o container como em producao
+        run: |
+          docker run -d --name smoke -p 8080:80 \
+            --read-only \
+            --tmpfs /var/cache/nginx --tmpfs /run --tmpfs /tmp \
+            --security-opt no-new-privileges:true \
+            arrowremove:teste
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "o container nao respondeu em 30s" >&2
+          exit 1
+
+      - name: Testar as rotas
+        run: |
+          set -eu
+          falhar() { echo "FALHOU: $*" >&2; exit 1; }
+
+          cab=$(curl -sSI http://127.0.0.1:8080/)
+          printf '%s\n' "$cab"
+
+          # O charset e o que impede o PowerShell 5.1 de decodificar como
+          # ISO-8859-1. Se este teste cair, o 'irm | iex' quebra em campo.
+          printf '%s' "$cab" | grep -qi 'content-type: text/plain; charset=utf-8' \
+            || falhar "content-type errado em /"
+          printf '%s' "$cab" | grep -qi 'cache-control: no-store' \
+            || falhar "cache-control ausente em /"
+          printf '%s' "$cab" | grep -qi 'x-content-type-options: nosniff' \
+            || falhar "nosniff ausente em /"
+          # Invertido num 'if' de proposito: com 'set -e', um '&& falhar' aqui
+          # derrubaria o passo justamente no caso BOM, em que o grep nao acha
+          # nada e devolve status 1.
+          if printf '%s' "$cab" | grep -qi 'server: nginx/'; then
+            falhar "server_tokens esta vazando a versao do nginx"
+          fi
+
+          curl -sS http://127.0.0.1:8080/ | head -1 | grep -q '^#Requires -Version 5.0' \
+            || falhar "/ nao devolveu o install.ps1"
+          curl -sS http://127.0.0.1:8080/revert | grep -q 'arrowremove /revert' \
+            || falhar "/revert nao devolveu o revert.ps1"
+          curl -sS http://127.0.0.1:8080/install.ps1 | grep -q '^#Requires' \
+            || falhar "/install.ps1 nao responde"
+          curl -sS http://127.0.0.1:8080/healthz | grep -qx 'ok' \
+            || falhar "/healthz nao respondeu 'ok'"
+
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/)
+          [ "$codigo" = "405" ] || falhar "POST em / devolveu $codigo, esperado 405"
+
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/qualquer-outra-coisa)
+          [ "$codigo" = "404" ] || falhar "caminho desconhecido devolveu $codigo, esperado 404"
+
+          echo "todas as rotas ok"
+
+      - name: Log do container
+        if: always()
+        run: docker logs smoke 2>&1 || true
+
+      - name: Login no ghcr.io
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          printf '%s' '${{ secrets.GITHUB_TOKEN }}' \
+            | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Publicar
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          IMAGEM=ghcr.io/${{ github.repository }}
+          docker tag arrowremove:teste "$IMAGEM:${{ github.ref_name }}"
+          docker tag arrowremove:teste "$IMAGEM:sha-${{ github.sha }}"
+          docker push "$IMAGEM:${{ github.ref_name }}"
+          docker push "$IMAGEM:sha-${{ github.sha }}"

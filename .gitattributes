@@ -1,0 +1,4 @@
+# Tudo em LF, inclusive os .ps1. O PowerShell le LF sem problema, e a imagem
+# roda em Linux -- um site.conf com CRLF chegaria ao nginx com \r no fim de
+# cada diretiva. A CI reprova o commit que trouxer CR nos scripts.
+* text=auto eol=lf

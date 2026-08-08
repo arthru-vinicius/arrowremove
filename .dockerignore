@@ -1,0 +1,6 @@
+# A imagem leva tres arquivos: site.conf, install.ps1 e revert.ps1. Todo o
+# resto e desenvolvimento e documentacao.
+*
+!site.conf
+!install.ps1
+!revert.ps1

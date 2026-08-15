@@ -5,14 +5,15 @@ Tira a seta de atalho dos ícones do Windows, por uma linha:
 ```powershell
 irm https://arrowremove.arthru.com | iex          # aplica
 irm https://arrowremove.arthru.com/revert | iex   # reverte
+irm https://arrowremove.arthru.com/insist | iex   # reaplica sozinho a cada boot
 ```
 
 O script pede elevação (a chave fica em `HKLM`), escreve o valor, reinicia o
 Explorer e termina. Não baixa mais nada e não faz nenhuma outra chamada de rede.
 
-Este repositório é o servidor por trás daquela URL: os dois scripts, a
+Este repositório é o servidor por trás daquela URL: os três scripts, a
 configuração do nginx que os entrega em texto puro, e a imagem de container que
-junta as três coisas. O endereço é servido pelo homelab, atrás de um Cloudflare
+junta as quatro coisas. O endereço é servido pelo homelab, atrás de um Cloudflare
 Tunnel.
 
 ## O achado que motivou tudo
@@ -43,6 +44,36 @@ opacos -- é transparente de verdade, não "quase".
 DLL do sistema, nunca um arquivo externo. Se você veio parar aqui procurando por
 que a sua seta virou um quadrado preto, é isso.
 
+## Maquinas que insistem (insist)
+
+O `/` acima resolve a maioria das máquinas de forma permanente. Em algumas,
+porém, a seta (ou o quadrado preto) **volta sozinha depois de um boot**,
+mesmo já com a correção aplicada -- normalmente porque alguma política de
+grupo, utilitário do fabricante ou reimagem de driver reescreve a chave
+`Shell Icons` de novo. Não há como descobrir de fora quem está reescrevendo;
+o `/insist` não tenta -- ele só reaplica a correção com frequência
+suficiente para ganhar a corrida:
+
+```powershell
+irm https://arrowremove.arthru.com/insist | iex
+```
+
+Isso cria uma tarefa agendada (`ArrowRemove-Insist`, rodando como
+`NT AUTHORITY\SYSTEM`) que dispara **no boot e a cada vez que a máquina
+identifica uma rede nova** -- cabo, Wi-Fi ou VPN -- e chama o `/` de novo a
+cada disparo. É a única exceção deliberada à regra "sem outra chamada de
+rede" logo abaixo: a tarefa criada continua contatando o servidor para
+sempre, para que uma correção publicada depois chegue automaticamente nas
+máquinas que já têm a tarefa instalada. Ver [`docs/insist.md`](docs/insist.md)
+para o que exatamente a tarefa faz, como inspecioná-la e como remover na mão.
+
+Para desfazer, o `/revert` já cuida de tudo -- ele verifica se a tarefa
+existe e remove antes de restaurar a seta padrão:
+
+```powershell
+irm https://arrowremove.arthru.com/revert | iex
+```
+
 ## Decisões de desenho que parecem detalhe e não são
 
 **O script é autocontido.** Não baixa mais nada além de si mesmo, não faz outra
@@ -50,7 +81,9 @@ chamada de rede, não tem dependência. Quem roda `irm | iex` está executando
 código de um servidor sem tela de login na frente -- a única defesa que sobra é
 o arquivo ser curto o bastante para ser lido inteiro antes. Isso é requisito, não
 estilo: um PR que introduza uma dependência externa está mudando o modelo de
-segurança da coisa.
+segurança da coisa. (A tarefa que o [`/insist`](#maquinas-que-insistem-insist)
+cria é a única exceção conhecida e deliberada -- ela chama o `/` de novo a
+cada disparo, para sempre. Ver `docs/insist.md`.)
 
 **O que está aqui é byte a byte o que a URL entrega.** Não há template nem etapa
 de geração entre este repositório e a resposta HTTP. Ler o arquivo no GitHub
@@ -81,10 +114,12 @@ máquina fora do estado de fábrica.
 ## Arquivos
 
 ```
-install.ps1   servido em /
-revert.ps1    servido em /revert
-site.conf     server block do nginx, vai para conf.d/default.conf
-Dockerfile    nginx:1.30.4-alpine + os tres acima
+install.ps1     servido em /
+revert.ps1      servido em /revert
+insist.ps1      servido em /insist
+site.conf       server block do nginx, vai para conf.d/default.conf
+Dockerfile      nginx:1.30.4-alpine + os tres scripts acima
+docs/insist.md  referencia completa da tarefa agendada que o /insist cria
 ```
 
 O `healthcheck` e o enrijecimento do container (`read_only`, tmpfs,
@@ -104,6 +139,7 @@ docker run --rm -p 8080:80 \
 
 curl -i http://127.0.0.1:8080/
 curl -i http://127.0.0.1:8080/revert
+curl -i http://127.0.0.1:8080/insist
 ```
 
 O `content-type` tem de sair como `text/plain; charset=utf-8`. Se sair outra

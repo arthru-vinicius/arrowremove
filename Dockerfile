@@ -7,8 +7,8 @@ FROM nginx:1.30.4-alpine
 # Por cima do default.conf da imagem, nao ao lado. Ver o cabecalho do site.conf.
 COPY site.conf /etc/nginx/conf.d/default.conf
 
-# Os dois arquivos que este servidor inteiro existe para entregar.
-COPY install.ps1 revert.ps1 /usr/share/nginx/html/
+# Os tres arquivos que este servidor inteiro existe para entregar.
+COPY install.ps1 revert.ps1 insist.ps1 /usr/share/nginx/html/
 
 # Sem HEALTHCHECK aqui, de proposito. Ele mora no docker-compose.yml que o
 # Ansible escreve no homelab (roles/apps/templates/arrowremove-compose.yml.j2),

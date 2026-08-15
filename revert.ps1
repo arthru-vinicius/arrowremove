@@ -4,6 +4,7 @@
 
       Reverter: irm https://arrowremove.arthru.com/revert | iex
       Aplicar:  irm https://arrowremove.arthru.com | iex
+      Insistir: irm https://arrowremove.arthru.com/insist | iex
 
   O QUE VOCE LE AQUI E O QUE EXECUTA. Este arquivo e servido byte a byte em
   https://arrowremove.arthru.com/revert.
@@ -12,6 +13,13 @@
   de uma entrada em 'Shell Icons' -- ela e o comportamento do Windows quando
   nao ha entrada nenhuma. Escrever qualquer coisa ali, mesmo tentando imitar o
   original, deixaria a maquina fora do estado de fabrica.
+
+  TAMBEM DESFAZ O '/insist', SE ELE EXISTIR. Quem rodou '/insist' criou uma
+  tarefa agendada (ver docs/insist.md) que reaplica a correcao sozinha a
+  cada boot. Reverter sem remover aquela tarefa devolveria a seta so ate o
+  proximo gatilho -- por isso o revert sempre verifica a tarefa primeiro, e a
+  remove se encontrar. Este script nunca cria a tarefa, so remove: nao ha
+  risco de o revert instalar o /insist por engano.
 
   Autocontido e sem acento pelos mesmos motivos do install.ps1 -- ver o
   cabecalho de la.
@@ -28,10 +36,29 @@ $ShellIconsKeys = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons'
 )
 
+# Nome fixo definido pelo insist.ps1. Nao ha variacao nem parametro aqui de
+# proposito: so existe uma tarefa possivel para remover.
+$InsistTaskName = 'ArrowRemove-Insist'
+
 function Test-IsAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal $identity
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Remove-InsistTaskIfPresent {
+    # '-ErrorAction SilentlyContinue' aqui, e nao so o '$ErrorActionPreference
+    # = Stop' global, porque o segundo transformaria "tarefa nao existe" (o
+    # caso comum, quem nunca rodou o /insist) num erro fatal que aborta o
+    # revert inteiro antes de mexer no registro.
+    $task = Get-ScheduledTask -TaskName $InsistTaskName -ErrorAction SilentlyContinue
+
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $InsistTaskName -Confirm:$false
+        Write-Host 'Tarefa do /insist encontrada e removida.' -ForegroundColor Green
+    } else {
+        Write-Host 'Nenhuma tarefa do /insist encontrada (nada a remover).' -ForegroundColor DarkGray
+    }
 }
 
 function Reset-IconCache {
@@ -83,6 +110,7 @@ if (-not (Test-IsAdmin)) {
         }
     }
 
+    Remove-InsistTaskIfPresent
     Reset-IconCache
 
     Write-Host 'Pronto: seta padrao restaurada.' -ForegroundColor Green

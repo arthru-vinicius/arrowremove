@@ -4,6 +4,7 @@
 
       Aplicar:  irm https://arrowremove.arthru.com | iex
       Reverter: irm https://arrowremove.arthru.com/revert | iex
+      Insistir: irm https://arrowremove.arthru.com/insist | iex
 
   O QUE VOCE LE AQUI E O QUE EXECUTA. Este arquivo e servido byte a byte em
   https://arrowremove.arthru.com -- nao ha template, nao ha geracao, nao ha
@@ -118,5 +119,18 @@ if (-not (Test-IsAdmin)) {
     Reset-IconCache
 
     Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
-    Write-Host "Para reverter: irm $SelfUrl/revert | iex" -ForegroundColor DarkGray
+
+    # Tela de ajuda curta com os outros dois comandos. Fica so aqui, no
+    # aplicar -- e o comando padrao, entao e onde a maioria das pessoas vai
+    # ler pela primeira vez que os outros dois existem.
+    Write-Host ''
+    Write-Host 'Outros comandos:' -ForegroundColor DarkGray
+    Write-Host "  irm $SelfUrl/revert | iex" -ForegroundColor DarkGray
+    Write-Host '    reverte: restaura a seta padrao do Windows.' -ForegroundColor DarkGray
+    Write-Host "  irm $SelfUrl/insist | iex" -ForegroundColor DarkGray
+    Write-Host '    para maquinas que voltam a mostrar o quadrado preto a' -ForegroundColor DarkGray
+    Write-Host '    cada boot: cria uma tarefa agendada que reaplica esta' -ForegroundColor DarkGray
+    Write-Host '    correcao sozinha, no boot e ao conectar na rede.' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host 'Detalhes: https://github.com/arthru-vinicius/arrowremove#maquinas-que-insistem-insist' -ForegroundColor DarkGray
 }

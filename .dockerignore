@@ -1,6 +1,7 @@
-# A imagem leva tres arquivos: site.conf, install.ps1 e revert.ps1. Todo o
-# resto e desenvolvimento e documentacao.
+# A imagem leva quatro arquivos: site.conf, install.ps1, revert.ps1 e
+# insist.ps1. Todo o resto e desenvolvimento e documentacao.
 *
 !site.conf
 !install.ps1
 !revert.ps1
+!insist.ps1

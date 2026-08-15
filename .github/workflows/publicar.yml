@@ -28,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($f in 'install.ps1', 'revert.ps1') {
+          foreach ($f in 'install.ps1', 'revert.ps1', 'insist.ps1') {
               $erros = $null
               $null = [System.Management.Automation.Language.Parser]::ParseFile(
                   (Resolve-Path $f), [ref]$null, [ref]$erros)
@@ -103,6 +103,8 @@ jobs:
             || falhar "/ nao devolveu o install.ps1"
           curl -sS http://127.0.0.1:8080/revert | grep -q 'arrowremove /revert' \
             || falhar "/revert nao devolveu o revert.ps1"
+          curl -sS http://127.0.0.1:8080/insist | grep -q 'arrowremove /insist' \
+            || falhar "/insist nao devolveu o insist.ps1"
           curl -sS http://127.0.0.1:8080/install.ps1 | grep -q '^#Requires' \
             || falhar "/install.ps1 nao responde"
           curl -sS http://127.0.0.1:8080/healthz | grep -qx 'ok' \

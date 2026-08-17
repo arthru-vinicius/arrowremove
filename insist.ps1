@@ -16,6 +16,12 @@
   ela so reaplica a correcao com frequencia suficiente para ganhar a
   corrida. Ver docs/insist.md para os detalhes da tarefa criada.
 
+  A CADA DISPARO NAO SIGNIFICA A CADA REINICIO DO EXPLORER. O install.ps1
+  confere a chave antes de mexer em qualquer coisa: se ela ja esta correta,
+  ele sai sem tocar no Explorer. So quando alguem de fato reescreveu a chave
+  desde o disparo anterior e que o script reaplica de verdade -- e reinicia
+  o Explorer nesse caso, e so nesse caso.
+
   O QUE VOCE LE AQUI E O QUE EXECUTA -- mesmo contrato do install.ps1 e do
   revert.ps1. Servido byte a byte em https://arrowremove.arthru.com/insist.
 

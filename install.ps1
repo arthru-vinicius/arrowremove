@@ -106,7 +106,19 @@ if (-not (Test-IsAdmin)) {
         Write-Host 'Elevacao recusada -- nada foi alterado.' -ForegroundColor Red
     }
 } else {
+    # Comparado ANTES de escrever, para decidir se vale a pena derrubar o
+    # Explorer. Sem isso, rodar o script de novo com a chave ja correta
+    # (o /insist faz isso a cada boot e a cada troca de rede) reiniciaria o
+    # Explorer sempre, mesmo quando ninguem reescreveu nada -- e e exatamente
+    # esse incomodo que o /insist existe para evitar causar.
+    $precisaCorrigir = $false
     foreach ($key in $ShellIconsKeys) {
+        $atual = (Get-ItemProperty -Path $key -Name $OverlayIndex `
+            -ErrorAction SilentlyContinue).$OverlayIndex
+        if ($atual -ne $IconValue) {
+            $precisaCorrigir = $true
+        }
+
         if (-not (Test-Path $key)) {
             New-Item -Path $key -Force | Out-Null
         }
@@ -116,9 +128,12 @@ if (-not (Test-IsAdmin)) {
             -PropertyType String -Force | Out-Null
     }
 
-    Reset-IconCache
-
-    Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
+    if ($precisaCorrigir) {
+        Reset-IconCache
+        Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
+    } else {
+        Write-Host 'Ja estava aplicado -- nada para fazer, Explorer nao foi reiniciado.' -ForegroundColor Green
+    }
 
     # Tela de ajuda curta com os outros dois comandos. Fica so aqui, no
     # aplicar -- e o comando padrao, entao e onde a maioria das pessoas vai

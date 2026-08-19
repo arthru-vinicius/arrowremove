@@ -106,19 +106,14 @@ if (-not (Test-IsAdmin)) {
         Write-Host 'Elevacao recusada -- nada foi alterado.' -ForegroundColor Red
     }
 } else {
-    # Comparado ANTES de escrever, para decidir se vale a pena derrubar o
-    # Explorer. Sem isso, rodar o script de novo com a chave ja correta
-    # (o /insist faz isso a cada boot e a cada troca de rede) reiniciaria o
-    # Explorer sempre, mesmo quando ninguem reescreveu nada -- e e exatamente
-    # esse incomodo que o /insist existe para evitar causar.
-    $precisaCorrigir = $false
+    # NAO pule o Reset-IconCache so porque o valor do registro ja bate com o
+    # esperado. Ja tentamos isso (v1.1.1) e deu regressao: o quadrado preto
+    # volta por cache de icone obsoleto, nao so por registro reescrito, e o
+    # registro correto nao prova que o icone esta renderizando certo agora.
+    # Sem um jeito confiavel de inspecionar o cache de fora, reaplicar sempre
+    # e o unico comportamento correto -- e o motivo de o /revert, ao lado,
+    # nunca ter condicionado o dele a nada.
     foreach ($key in $ShellIconsKeys) {
-        $atual = (Get-ItemProperty -Path $key -Name $OverlayIndex `
-            -ErrorAction SilentlyContinue).$OverlayIndex
-        if ($atual -ne $IconValue) {
-            $precisaCorrigir = $true
-        }
-
         if (-not (Test-Path $key)) {
             New-Item -Path $key -Force | Out-Null
         }
@@ -128,12 +123,9 @@ if (-not (Test-IsAdmin)) {
             -PropertyType String -Force | Out-Null
     }
 
-    if ($precisaCorrigir) {
-        Reset-IconCache
-        Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
-    } else {
-        Write-Host 'Ja estava aplicado -- nada para fazer, Explorer nao foi reiniciado.' -ForegroundColor Green
-    }
+    Reset-IconCache
+
+    Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
 
     # Tela de ajuda curta com os outros dois comandos. Fica so aqui, no
     # aplicar -- e o comando padrao, entao e onde a maioria das pessoas vai

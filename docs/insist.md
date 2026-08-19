@@ -39,20 +39,27 @@ Tarefas (não numa subpasta).
 | Múltiplas instâncias | `IgnoreNew` | Se os dois gatilhos dispararem quase juntos (boot e rede em sequência rápida, comum em SSD), a segunda execução é descartada em vez de rodar em paralelo. |
 | Limite de execução | 5 minutos | O script normalmente termina em segundos; o limite existe só para não deixar uma cópia travada seguindo dona da tarefa para sempre. |
 
-## Cada disparo não significa reiniciar o Explorer
+## Cada disparo reinicia o Explorer, sim -- de propósito
 
-A tarefa dispara com frequência -- todo boot, toda troca de rede -- mas isso
-não quer dizer que o Explorer cai com a mesma frequência. O `install.ps1`
-(a ação que a tarefa chama) confere o valor atual da chave `Shell Icons`
-**antes** de mexer em qualquer coisa: se já está igual ao esperado nas duas
-chaves (`HKCU` e `HKLM`), o script sai sem tocar no cache de ícones nem no
-Explorer -- só a checagem de registro roda, que é instantânea.
+A tarefa dispara com frequência -- todo boot, toda troca de rede -- e o
+`install.ps1` (a ação que ela chama) **reinicia o Explorer em todo disparo**,
+sem checar antes se "vale a pena".
 
-O Explorer só reinicia no disparo em que a chave realmente precisou ser
-reescrita, ou seja, quando algo de fato desfez a correção desde o disparo
-anterior. Numa máquina saudável isso acontece raramente; numa máquina que
-insiste de verdade, é exatamente o comportamento desejado -- a correção volta
-antes que alguém note a seta (ou o quadrado preto).
+Isso não é falta de otimização. A versão `v1.1.1` tentou exatamente essa
+otimização -- só reiniciar o Explorer quando o valor do registro estivesse
+diferente do esperado -- e causou uma regressão: em algumas máquinas o
+quadrado preto volta por **cache de ícone obsoleto**, não por registro
+reescrito. Com o registro já correto, a checagem dizia "nada a fazer" e
+pulava a única coisa que de fato resolve, que é derrubar o Explorer e
+apagar o `iconcache*`. O resultado prático foi o quadrado preto ficando
+parado na tela, com o script relatando sucesso.
+
+Não existe hoje um jeito confiável de inspecionar de fora se o cache de
+ícone está renderizando certo -- seria mexer em formato binário não
+documentado, o mesmo motivo pelo qual o `/insist` nunca tentou identificar
+quem reescreve a chave. Reaplicar sempre, reiniciando o Explorer em todo
+disparo, é o preço de o `/insist` funcionar de forma confiável para a classe
+de máquina para a qual ele existe.
 
 ## A exceção deliberada à regra "sem outra chamada de rede"
 

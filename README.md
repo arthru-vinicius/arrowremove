@@ -61,14 +61,17 @@ irm https://arrowremove.arthru.com/insist | iex
 Isso cria uma tarefa agendada (`ArrowRemove-Insist`, rodando como
 `NT AUTHORITY\SYSTEM`) que dispara **no boot e a cada vez que a máquina
 identifica uma rede nova** -- cabo, Wi-Fi ou VPN -- e chama o `/` de novo a
-cada disparo. **Cada disparo não é um reinício do Explorer:** o script
-confere a chave antes de mexer em qualquer coisa, e só reinicia o Explorer
-quando ela realmente precisou ser corrigida de novo. É a única exceção
-deliberada à regra "sem outra chamada de rede" logo abaixo: a tarefa criada
-continua contatando o servidor para sempre, para que uma correção publicada
-depois chegue automaticamente nas máquinas que já têm a tarefa instalada.
-Ver [`docs/insist.md`](docs/insist.md) para o que exatamente a tarefa faz,
-como inspecioná-la e como remover na mão.
+cada disparo -- **inclusive reiniciando o Explorer todas as vezes.** Parece
+caro, mas é deliberado: o quadrado preto pode voltar por cache de ícone
+obsoleto, não só por registro reescrito, e o registro já estar correto não
+prova que o ícone está renderizando certo agora. Sem jeito confiável de
+inspecionar o cache de fora, reaplicar sempre é o único jeito de o `/insist`
+funcionar de verdade. É a única exceção deliberada à regra "sem outra
+chamada de rede" logo abaixo: a tarefa criada continua contatando o
+servidor para sempre, para que uma correção publicada depois chegue
+automaticamente nas máquinas que já têm a tarefa instalada. Ver
+[`docs/insist.md`](docs/insist.md) para o que exatamente a tarefa faz, como
+inspecioná-la e como remover na mão.
 
 Para desfazer, o `/revert` já cuida de tudo -- ele verifica se a tarefa
 existe e remove antes de restaurar a seta padrão:

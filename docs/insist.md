@@ -39,27 +39,65 @@ Tarefas (não numa subpasta).
 | Múltiplas instâncias | `IgnoreNew` | Se os dois gatilhos dispararem quase juntos (boot e rede em sequência rápida, comum em SSD), a segunda execução é descartada em vez de rodar em paralelo. |
 | Limite de execução | 5 minutos | O script normalmente termina em segundos; o limite existe só para não deixar uma cópia travada seguindo dona da tarefa para sempre. |
 
-## Cada disparo reinicia o Explorer, sim -- de propósito
+## Nem todo disparo reinicia o Explorer -- e essa é uma troca aceita, não uma garantia
 
-A tarefa dispara com frequência -- todo boot, toda troca de rede -- e o
-`install.ps1` (a ação que ela chama) **reinicia o Explorer em todo disparo**,
-sem checar antes se "vale a pena".
+A tarefa dispara com frequência -- todo boot, toda troca de rede -- mas o
+`install.ps1` (a ação que ela chama) só reinicia o Explorer **quando o valor
+do registro está diferente do esperado**. Se já está correto, o script sai
+sem tocar no cache de ícones nem no Explorer.
 
-Isso não é falta de otimização. A versão `v1.1.1` tentou exatamente essa
-otimização -- só reiniciar o Explorer quando o valor do registro estivesse
-diferente do esperado -- e causou uma regressão: em algumas máquinas o
-quadrado preto volta por **cache de ícone obsoleto**, não por registro
-reescrito. Com o registro já correto, a checagem dizia "nada a fazer" e
-pulava a única coisa que de fato resolve, que é derrubar o Explorer e
-apagar o `iconcache*`. O resultado prático foi o quadrado preto ficando
-parado na tela, com o script relatando sucesso.
+Essa checagem já causou uma regressão uma vez (`v1.1.1`): em pelo menos uma
+máquina, o quadrado preto voltou por **cache de ícone obsoleto**, não por
+registro reescrito. Com o registro já correto, a checagem dizia "nada a
+fazer" e pulava a única coisa que de fato resolve, que é derrubar o Explorer
+e apagar o `iconcache*`. O resultado prático foi o quadrado preto ficando
+parado na tela, com o script relatando sucesso (`v1.1.2` reverteu para
+sempre reaplicar, sem essa checagem, só para constatar que o incômodo de
+reiniciar o Explorer toda hora era pior que o risco -- daí a `v1.1.3`
+trazer a checagem de volta).
 
 Não existe hoje um jeito confiável de inspecionar de fora se o cache de
 ícone está renderizando certo -- seria mexer em formato binário não
-documentado, o mesmo motivo pelo qual o `/insist` nunca tentou identificar
-quem reescreve a chave. Reaplicar sempre, reiniciando o Explorer em todo
-disparo, é o preço de o `/insist` funcionar de forma confiável para a classe
-de máquina para a qual ele existe.
+documentado do Windows. Então esta versão aceita conscientemente que, na
+próxima vez que o quadrado preto voltar por essa causa específica, o
+`/insist` **não vai perceber sozinho** -- veja a seção seguinte para o que
+fazer se isso acontecer.
+
+## Cache de ícone sem registro mudar
+
+Se a seta ou o quadrado preto está errado na tela e `irm https://arrowremove.arthru.com | iex`
+diz **"Registro já estava correto -- nada para fazer"**, o problema não é o
+registro -- é o cache de ícone. **Não rode `/revert` nem `/` de novo ainda**:
+os dois apagam justamente o estado que ajuda a entender o que aconteceu.
+
+Antes de corrigir, capture (basta colar no PowerShell, não precisa admin):
+
+```powershell
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' -Name 29
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' -Name 29
+Get-ScheduledTaskInfo -TaskName ArrowRemove-Insist
+Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" -Filter 'iconcache*' |
+    Select-Object Name, LastWriteTime, Length
+```
+
+O que essa captura mostra: se as duas primeiras linhas confirmam que o valor
+já está `%SystemRoot%\System32\shell32.dll,-50` nas duas chaves (o caso
+esperado deste bug), o `LastRunTime`/`LastTaskResult` da tarefa (para saber
+se ela realmente rodou perto de quando o problema apareceu) e o
+`LastWriteTime` dos arquivos de `iconcache*` (para saber há quanto tempo o
+cache não é renovado).
+
+**Habilitar o histórico do Agendador de Tarefas com antecedência** deixa essa
+captura mais rica da próxima vez -- por padrão ele vem desabilitado no
+Windows:
+
+```powershell
+wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true
+```
+
+Depois de capturar, aí sim `/revert` seguido de `/` restaura o ícone
+imediatamente (o `/revert` sempre reinicia o Explorer incondicionalmente,
+então funciona independente da causa).
 
 ## A exceção deliberada à regra "sem outra chamada de rede"
 
@@ -125,6 +163,9 @@ schtasks /delete /tn ArrowRemove-Insist /f
 
 ## Limitações conhecidas
 
+- **Cache de ícone obsoleto sem o registro mudar.** Ver a seção "Cache de
+  ícone sem registro mudar" acima -- é a limitação mais recente e mais
+  provável de aparecer na prática.
 - **HKCU de outra conta administradora.** Se alguma coisa reescreve
   especificamente o `HKCU` de um usuário (e não o `HKLM` da máquina), a
   tarefa -- que roda como SYSTEM e portanto só toca o próprio `HKCU` de

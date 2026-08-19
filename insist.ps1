@@ -16,13 +16,13 @@
   ela so reaplica a correcao com frequencia suficiente para ganhar a
   corrida. Ver docs/insist.md para os detalhes da tarefa criada.
 
-  SIM, CADA DISPARO REINICIA O EXPLORER. Parece caro para um script que roda
-  a cada boot e a cada troca de rede, e ja tentamos evitar isso condicionando
-  o reinicio a "o valor do registro mudou" (v1.1.1) -- resultado foi o
-  quadrado preto voltando e ficando, porque o registro correto nao significa
-  que o cache de icone esta renderizando certo. Sem jeito confiavel de
-  inspecionar o cache de fora, reaplicar sempre e o preco de o /insist
-  funcionar de verdade.
+  NEM TODO DISPARO REINICIA O EXPLORER, E ISSO E UMA TROCA ACEITA, NAO UMA
+  GARANTIA. O install.ps1 so reinicia o Explorer quando o valor do registro
+  esta diferente do esperado. Ja sabemos que isso deixa passar batido o caso
+  em que o quadrado preto volta por cache de icone obsoleto sem o registro
+  mudar -- ja aconteceu uma vez, ver docs/insist.md, secao "Cache de icone
+  sem registro mudar". Quem mantem este script decidiu que o incomodo de
+  reiniciar o Explorer toda hora pesa mais do que esse risco residual.
 
   O QUE VOCE LE AQUI E O QUE EXECUTA -- mesmo contrato do install.ps1 e do
   revert.ps1. Servido byte a byte em https://arrowremove.arthru.com/insist.

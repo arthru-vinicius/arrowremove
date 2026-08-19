@@ -106,14 +106,24 @@ if (-not (Test-IsAdmin)) {
         Write-Host 'Elevacao recusada -- nada foi alterado.' -ForegroundColor Red
     }
 } else {
-    # NAO pule o Reset-IconCache so porque o valor do registro ja bate com o
-    # esperado. Ja tentamos isso (v1.1.1) e deu regressao: o quadrado preto
-    # volta por cache de icone obsoleto, nao so por registro reescrito, e o
-    # registro correto nao prova que o icone esta renderizando certo agora.
-    # Sem um jeito confiavel de inspecionar o cache de fora, reaplicar sempre
-    # e o unico comportamento correto -- e o motivo de o /revert, ao lado,
-    # nunca ter condicionado o dele a nada.
+    # TROCA ACEITA CONSCIENTEMENTE, NAO GARANTIA. So reaplicamos de verdade
+    # (com o reinicio do Explorer que isso implica) quando o registro esta
+    # diferente do esperado. Sabemos que isso deixa passar batido o caso em
+    # que o quadrado preto volta por cache de icone obsoleto SEM o registro
+    # mudar -- ja aconteceu uma vez (ver historico do repositorio) -- porque
+    # nao ha hoje um jeito confiavel de inspecionar aquele cache de fora sem
+    # depender de formato binario nao documentado. Quem mantem este script
+    # decidiu que o incomodo de reiniciar o Explorer a cada boot/rede pesa
+    # mais do que esse risco residual, e prefere diagnosticar ao vivo na
+    # proxima vez que acontecer a "resolver" isso as cegas de novo.
+    $precisaCorrigir = $false
     foreach ($key in $ShellIconsKeys) {
+        $atual = (Get-ItemProperty -Path $key -Name $OverlayIndex `
+            -ErrorAction SilentlyContinue).$OverlayIndex
+        if ($atual -ne $IconValue) {
+            $precisaCorrigir = $true
+        }
+
         if (-not (Test-Path $key)) {
             New-Item -Path $key -Force | Out-Null
         }
@@ -123,9 +133,17 @@ if (-not (Test-IsAdmin)) {
             -PropertyType String -Force | Out-Null
     }
 
-    Reset-IconCache
-
-    Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
+    if ($precisaCorrigir) {
+        Reset-IconCache
+        Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
+    } else {
+        # Se a seta ou o quadrado preto estiver na tela AGORA e voce ver esta
+        # mensagem, o registro nao e a causa desta vez -- e cache de icone.
+        # Ver "Cache de icone sem registro mudar" em docs/insist.md antes de
+        # rodar /revert ou / de novo: rodar qualquer um dos dois apaga o
+        # estado que ajudaria a diagnosticar.
+        Write-Host 'Registro ja estava correto -- nada para fazer, Explorer nao foi reiniciado.' -ForegroundColor Green
+    }
 
     # Tela de ajuda curta com os outros dois comandos. Fica so aqui, no
     # aplicar -- e o comando padrao, entao e onde a maioria das pessoas vai

@@ -62,14 +62,17 @@ Isso cria uma tarefa agendada (`ArrowRemove-Insist`, rodando como
 `NT AUTHORITY\SYSTEM`) que dispara **no boot e a cada vez que a máquina
 identifica uma rede nova** -- cabo, Wi-Fi ou VPN -- e chama o `/` de novo a
 cada disparo. **O Explorer só reinicia quando o registro está diferente do
-esperado** -- uma troca aceita conscientemente, não uma garantia: o quadrado
-preto também pode voltar por cache de ícone obsoleto, sem o registro mudar,
-e nesse caso específico o script não percebe. Ver
-[`docs/insist.md`](docs/insist.md), seção "Cache de ícone sem registro
-mudar", para o que fazer se isso acontecer. É a única exceção deliberada à
-regra "sem outra chamada de rede" logo abaixo: a tarefa criada continua
-contatando o servidor para sempre, para que uma correção publicada depois
-chegue automaticamente nas máquinas que já têm a tarefa instalada.
+esperado, ou quando uma checagem ao vivo do ícone detecta o quadrado preto
+mesmo com o registro certo** -- essa segunda checagem (via `SHGetFileInfo`
+num atalho `.lnk` que já existe no disco, a mesma técnica usada para
+validar o ícone-fonte) existe justamente porque o quadrado preto também
+pode voltar por cache de ícone obsoleto, sem o registro mudar. Ver
+[`docs/insist.md`](docs/insist.md), seção "Nem todo disparo reinicia o
+Explorer", para os detalhes e os limites dessa checagem. É a única exceção
+deliberada à regra "sem outra chamada de rede" logo abaixo: a tarefa
+criada continua contatando o servidor para sempre, para que uma correção
+publicada depois chegue automaticamente nas máquinas que já têm a tarefa
+instalada.
 
 Para desfazer, o `/revert` já cuida de tudo -- ele verifica se a tarefa
 existe e remove antes de restaurar a seta padrão:

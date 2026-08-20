@@ -39,36 +39,69 @@ Tarefas (não numa subpasta).
 | Múltiplas instâncias | `IgnoreNew` | Se os dois gatilhos dispararem quase juntos (boot e rede em sequência rápida, comum em SSD), a segunda execução é descartada em vez de rodar em paralelo. |
 | Limite de execução | 5 minutos | O script normalmente termina em segundos; o limite existe só para não deixar uma cópia travada seguindo dona da tarefa para sempre. |
 
-## Nem todo disparo reinicia o Explorer -- e essa é uma troca aceita, não uma garantia
+## Nem todo disparo reinicia o Explorer -- e agora é uma checagem, não só uma aposta
 
 A tarefa dispara com frequência -- todo boot, toda troca de rede -- mas o
-`install.ps1` (a ação que ela chama) só reinicia o Explorer **quando o valor
-do registro está diferente do esperado**. Se já está correto, o script sai
-sem tocar no cache de ícones nem no Explorer.
+`install.ps1` (a ação que ela chama) só reinicia o Explorer quando **o
+registro está diferente do esperado OU a checagem ao vivo do ícone (ver
+abaixo) pega um atalho já existente no disco com o ícone inteiro
+renderizando preto**. Se nenhum dos dois acontece, o script sai sem tocar
+no cache de ícones nem no Explorer.
 
-Essa checagem já causou uma regressão uma vez (`v1.1.1`): em pelo menos uma
-máquina, o quadrado preto voltou por **cache de ícone obsoleto**, não por
-registro reescrito. Com o registro já correto, a checagem dizia "nada a
-fazer" e pulava a única coisa que de fato resolve, que é derrubar o Explorer
-e apagar o `iconcache*`. O resultado prático foi o quadrado preto ficando
-parado na tela, com o script relatando sucesso (`v1.1.2` reverteu para
-sempre reaplicar, sem essa checagem, só para constatar que o incômodo de
-reiniciar o Explorer toda hora era pior que o risco -- daí a `v1.1.3`
-trazer a checagem de volta).
+### Por que a checagem ao vivo existe
 
-Não existe hoje um jeito confiável de inspecionar de fora se o cache de
-ícone está renderizando certo -- seria mexer em formato binário não
-documentado do Windows. Então esta versão aceita conscientemente que, na
-próxima vez que o quadrado preto voltar por essa causa específica, o
-`/insist` **não vai perceber sozinho** -- veja a seção seguinte para o que
-fazer se isso acontecer.
+Essa história já teve algumas versões:
 
-## Cache de ícone sem registro mudar
+- **v1.1.1** só olhava o registro. Regrediu: em pelo menos uma máquina, o
+  quadrado preto voltou por **cache de ícone obsoleto**, não por registro
+  reescrito. Com o registro já correto, a checagem dizia "nada a fazer" e
+  pulava a única coisa que de fato resolve, que é derrubar o Explorer e
+  apagar o `iconcache*`.
+- **v1.1.2** reverteu para sempre reaplicar, sem checagem nenhuma -- só
+  para constatar que reiniciar o Explorer a cada boot/rede incomodava mais
+  do que valia a pena.
+- **v1.1.3** trouxe a checagem de volta, documentando o cache de ícone
+  como ponto cego conhecido e aceito: não havia, até então, um jeito
+  confiável de inspecionar de fora se o cache estava renderizando certo,
+  porque isso significaria mexer em formato binário não documentado do
+  Windows.
 
-Se a seta ou o quadrado preto está errado na tela e `irm https://arrowremove.arthru.com | iex`
-diz **"Registro já estava correto -- nada para fazer"**, o problema não é o
-registro -- é o cache de ícone. **Não rode `/revert` nem `/` de novo ainda**:
-os dois apagam justamente o estado que ajuda a entender o que aconteceu.
+**v1.1.4** fecha esse ponto cego sem tocar no formato binário do cache: em
+vez de perguntar ao registro ou ao cache, pergunta ao **Shell** (via
+`SHGetFileInfo`, API pública, mesma família do `ExtractIconEx` usado acima
+para validar o ícone-fonte) qual o ícone de um atalho `.lnk` que **já
+existe no disco** -- isso passa pelo mesmo cache que o Explorer usa pra
+desenhar a área de trabalho. Um atalho criado na hora não serve: ganharia
+uma entrada de cache nova e não revelaria nada sobre o cache velho que
+está quebrado.
+
+Validado ao vivo numa máquina com o bug presente: todo atalho já existente
+veio com o ícone inteiro preto opaco, enquanto o `.exe` alvo (sem overlay)
+e pastas comuns vieram limpos -- confirma que o problema é do overlay de
+atalho especificamente, não da técnica de extração. Depois do
+`Reset-IconCache`, a mesma checagem confirmou o ícone limpo, batendo com o
+que a tela mostrava.
+
+### O que essa checagem ainda não cobre
+
+- **Precisa de pelo menos um atalho `.lnk` já existente** em `Desktop`,
+  `Public\Desktop` ou no Menu Iniciar do usuário. Numa máquina novíssima,
+  sem nenhum atalho ainda, não há o que testar ao vivo e o script cai de
+  volta no comportamento só-registro -- caso raro, mas vale saber.
+- **Chamadas repetidas em sequência podem perturbar o cache de ícones
+  temporariamente**, produzindo leituras inconsistentes por alguns
+  segundos até se estabilizar de novo -- observado em teste com dezenas de
+  extrações em poucos minutos, bem mais do que os até 3 atalhos que esta
+  checagem lê por disparo. A checagem em produção é leve de propósito; não
+  aumente esse número sem necessidade real.
+
+## Cache de ícone sem registro mudar (diagnóstico manual)
+
+A checagem ao vivo acima cobre esse caso automaticamente na maioria das
+vezes. Se, mesmo assim, a seta ou o quadrado preto aparecer errado na tela
+e o `/` disser "nada a fazer", ainda dá pra investigar manualmente antes de
+rodar `/revert` ou `/` de novo -- os dois apagam justamente o estado que
+ajuda a entender o que aconteceu.
 
 Antes de corrigir, capture (basta colar no PowerShell, não precisa admin):
 
@@ -163,9 +196,11 @@ schtasks /delete /tn ArrowRemove-Insist /f
 
 ## Limitações conhecidas
 
-- **Cache de ícone obsoleto sem o registro mudar.** Ver a seção "Cache de
-  ícone sem registro mudar" acima -- é a limitação mais recente e mais
-  provável de aparecer na prática.
+- **Cache de ícone obsoleto sem o registro mudar.** Coberto automaticamente
+  pela checagem ao vivo desde a v1.1.4 (ver "Nem todo disparo reinicia o
+  Explorer" acima), desde que exista pelo menos um atalho `.lnk` no disco
+  para testar. Sem nenhum atalho, cai no ponto cego antigo -- ver "Cache de
+  ícone sem registro mudar (diagnóstico manual)".
 - **HKCU de outra conta administradora.** Se alguma coisa reescreve
   especificamente o `HKCU` de um usuário (e não o `HKLM` da máquina), a
   tarefa -- que roda como SYSTEM e portanto só toca o próprio `HKCU` de

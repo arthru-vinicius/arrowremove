@@ -12,7 +12,8 @@
   Ele APAGA o valor em vez de escrever a seta de volta. A seta padrao nao vem
   de uma entrada em 'Shell Icons' -- ela e o comportamento do Windows quando
   nao ha entrada nenhuma. Escrever qualquer coisa ali, mesmo tentando imitar o
-  original, deixaria a maquina fora do estado de fabrica.
+  original, deixaria a maquina fora do estado de fabrica. Pelo mesmo motivo
+  apaga tambem o icone que o install.ps1 gerou em %ProgramFiles%\arrowremove.
 
   TAMBEM DESFAZ O '/insist', SE ELE EXISTIR. Quem rodou '/insist' criou uma
   tarefa agendada (ver docs/insist.md) que reaplica a correcao sozinha a
@@ -39,6 +40,11 @@ $ShellIconsKeys = @(
 # Nome fixo definido pelo insist.ps1. Nao ha variacao nem parametro aqui de
 # proposito: so existe uma tarefa possivel para remover.
 $InsistTaskName = 'ArrowRemove-Insist'
+
+# Onde o install.ps1 grava o icone que substitui a seta (v1.2.0 em diante).
+# Maquina que so rodou versao anterior nao tem a pasta, e apagar o que nao
+# existe aqui e um no-op.
+$IconDir = Join-Path $env:ProgramFiles 'arrowremove'
 
 function Test-IsAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -67,10 +73,17 @@ function Reset-IconCache {
     # imediatamente depois de derrubar o shell, sem espera no meio.
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 
-    Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" `
-        -Filter 'iconcache*' -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-    Remove-Item "$env:LOCALAPPDATA\IconCache.db" -Force -ErrorAction SilentlyContinue
+    # Todo perfil local, pelo mesmo motivo do install.ps1: o overlay vem do
+    # HKLM e vale para todos, mas o cache que guarda o desenho dele e por
+    # usuario.
+    $locais = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' |
+        Where-Object { $_.PSChildName -like 'S-1-5-21-*' } |
+        ForEach-Object { Join-Path $_.GetValue('ProfileImagePath') 'AppData\Local' })
+    foreach ($local in ($locais + $env:LOCALAPPDATA | Select-Object -Unique)) {
+        Get-ChildItem "$local\Microsoft\Windows\Explorer" -Filter 'iconcache*' `
+            -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Remove-Item "$local\IconCache.db" -Force -ErrorAction SilentlyContinue
+    }
 
     # 'thumbcache*' fica de fora: sao as miniaturas de foto e video, e regerar
     # aquilo numa pasta grande custa minutos de disco.
@@ -112,6 +125,10 @@ if (-not (Test-IsAdmin)) {
 
     Remove-InsistTaskIfPresent
     Reset-IconCache
+
+    # Depois do reset, e nao antes: o valor ja saiu do registro, entao o
+    # Explorer que volta nao carrega mais este arquivo e nada o segura aberto.
+    Remove-Item $IconDir -Recurse -Force -ErrorAction SilentlyContinue
 
     Write-Host 'Pronto: seta padrao restaurada.' -ForegroundColor Green
 }

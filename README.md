@@ -8,8 +8,10 @@ irm https://arrowremove.arthru.com/revert | iex   # reverte
 irm https://arrowremove.arthru.com/insist | iex   # reaplica sozinho a cada boot
 ```
 
-O script pede elevação (a chave fica em `HKLM`), escreve o valor, reinicia o
-Explorer e termina. Não baixa mais nada e não faz nenhuma outra chamada de rede.
+O script pede elevação (a chave fica em `HKLM`), gera um ícone praticamente
+transparente em `%ProgramFiles%\arrowremove\sem-seta.ico`, aponta a seta de
+atalho para ele, limpa o cache de ícones, reinicia o Explorer e termina. Não
+baixa mais nada e não faz nenhuma outra chamada de rede.
 
 Este repositório é o servidor por trás daquela URL: os três scripts, a
 configuração do nginx que os entrega em texto puro, e a imagem de container que
@@ -22,37 +24,48 @@ A técnica conhecida para isso é apontar `Shell Icons\29` -- o índice da
 sobreposição de atalho -- para um ícone transparente. **A parte que quase toda
 receita na internet erra é a fonte do ícone.**
 
-Testado ao vivo num Dell Latitude 5420 com Windows 11 build 26200:
+A receita clássica funciona, e depois falha: a seta some, e no boot seguinte
+(ou no próximo reinício do Explorer, ou depois de instalar algum programa) o
+Windows passa a desenhar um **quadrado preto** no lugar dela. Acontece com
+`.ico` próprio de qualquer formato **e** com o `shell32.dll,-50`, que este
+projeto usou até a `v1.1.3` achando que era imune.
 
-Apontar para um arquivo `.ico` próprio **funciona, e depois falha.** O ícone é
-aceito, a seta some, e depois de alguns reboots o Windows passa a desenhar um
-**quadrado preto** no lugar dela. Reproduzido com máscara clássica AND/XOR e com
-PNG multi-resolução com canal alfa puro, e relatado por outras pessoas usando a
-mesma técnica -- não é um `.ico` mal formado nem uma máquina específica.
+**A causa, medida:** todo ícone "totalmente transparente" tem alfa 0 em todo
+pixel. Extraído fresco, ele é desenhado pela máscara e fica invisível. Mas o
+Explorer guarda o overlay no cache de ícones (`iconcache_*.db`), e na volta do
+cache a imagem chega com alfa 0 **e máscara opaca** -- o Windows conclui
+"imagem sem canal alfa" e pinta a cor crua, que é preta. Qualquer recarga do
+cache dispara isso: boot, reinício do Explorer, ou instalação que avisa o
+shell de mudança de associação. Por isso o quadrado preto parecia ligado a
+"cada boot" e, em outros dias, a "instalei o WSL/Docker/um app da Store".
 
-Apontar para um recurso **já embutido num DLL do sistema** resolve de forma
-estável:
+Medido em Windows 11 build 26300, lendo a lista de imagens do sistema pela API
+documentada (`SHGetImageList` + `GetOverlayImage`, ver
+[`tools/diagnostico-overlay.ps1`](tools/diagnostico-overlay.ps1)):
 
-```
-%SystemRoot%\System32\shell32.dll,-50
-```
+| Overlay (depois de recarregar do cache) | 16px | 32px | 48px |
+|---|---|---|---|
+| `shell32.dll,-50` (alfa 0) | 256/256 pixels pretos | 1024/1024 | 2304/2304 |
+| ícone com alfa 1 em todo pixel | 0 visíveis | 0 | 0 |
 
-Validado programaticamente: extraído com `ExtractIconEx`, dá 0 de 1024 pixels
-opacos -- é transparente de verdade, não "quase".
+**A correção:** um ícone com alfa **1** (de 255) em todo pixel. São 0,4% de
+opacidade -- desenhado sobre um atalho real, muda no máximo 2/255 de algum
+canal, imperceptível --, mas o canal alfa sobrevive ao cache e o Windows passa
+a misturar pelo alfa em vez de pintar a máscara. Nenhum ícone do Windows é
+assim, então o script gera o seu, byte a byte, sem arquivo binário embutido.
 
-**A regra que fica:** para sobreposição de ícone, sempre um índice dentro de um
-DLL do sistema, nunca um arquivo externo. Se você veio parar aqui procurando por
-que a sua seta virou um quadrado preto, é isso.
+**A regra que fica:** para sobreposição de ícone, nunca um ícone de alfa 0, de
+lugar nenhum. Se você veio parar aqui procurando por que a sua seta virou um
+quadrado preto, é isso.
 
 ## Maquinas que insistem (insist)
 
-O `/` acima resolve a maioria das máquinas de forma permanente. Em algumas,
-porém, a seta (ou o quadrado preto) **volta sozinha depois de um boot**,
-mesmo já com a correção aplicada -- normalmente porque alguma política de
-grupo, utilitário do fabricante ou reimagem de driver reescreve a chave
-`Shell Icons` de novo. Não há como descobrir de fora quem está reescrevendo;
-o `/insist` não tenta -- ele só reaplica a correção com frequência
-suficiente para ganhar a corrida:
+O quadrado preto que voltava a cada boot **não** precisa do `/insist`: era o
+ícone de alfa 0 quebrando no cache (seção acima), e o `/` sozinho resolve
+isso de vez desde a `v1.2.0`. O `/insist` é para o caso que sobra: máquina em
+que alguma política de grupo, utilitário do fabricante ou reimagem de driver
+reescreve a chave `Shell Icons` ou apaga o ícone. Não há como descobrir de
+fora quem faz isso; o `/insist` não tenta -- ele só confere e reaplica:
 
 ```powershell
 irm https://arrowremove.arthru.com/insist | iex
@@ -61,18 +74,14 @@ irm https://arrowremove.arthru.com/insist | iex
 Isso cria uma tarefa agendada (`ArrowRemove-Insist`, rodando como
 `NT AUTHORITY\SYSTEM`) que dispara **no boot e a cada vez que a máquina
 identifica uma rede nova** -- cabo, Wi-Fi ou VPN -- e chama o `/` de novo a
-cada disparo. **O Explorer só reinicia quando o registro está diferente do
-esperado, ou quando uma checagem ao vivo do ícone detecta o quadrado preto
-mesmo com o registro certo** -- essa segunda checagem (via `SHGetFileInfo`
-num atalho `.lnk` que já existe no disco, a mesma técnica usada para
-validar o ícone-fonte) existe justamente porque o quadrado preto também
-pode voltar por cache de ícone obsoleto, sem o registro mudar. Ver
-[`docs/insist.md`](docs/insist.md), seção "Nem todo disparo reinicia o
-Explorer", para os detalhes e os limites dessa checagem. É a única exceção
-deliberada à regra "sem outra chamada de rede" logo abaixo: a tarefa
-criada continua contatando o servidor para sempre, para que uma correção
-publicada depois chegue automaticamente nas máquinas que já têm a tarefa
-instalada.
+cada disparo. **O Explorer só é reiniciado se o ícone ou o `HKLM` estavam
+diferentes do esperado**; num boot normal, nada acontece. Isso só é seguro
+porque o ícone de alfa 1 não quebra no cache -- com o de alfa 0, essa mesma
+checagem já deixou o quadrado preto na tela com o script dizendo "nada a
+fazer" (`v1.1.1`). Ver [`docs/insist.md`](docs/insist.md). É a única exceção deliberada à
+regra "sem outra chamada de rede" logo abaixo: a tarefa criada continua
+contatando o servidor para sempre, para que uma correção publicada depois
+chegue automaticamente nas máquinas que já têm a tarefa instalada.
 
 Para desfazer, o `/revert` já cuida de tudo -- ele verifica se a tarefa
 existe e remove antes de restaurar a seta padrão:
@@ -88,9 +97,12 @@ chamada de rede, não tem dependência. Quem roda `irm | iex` está executando
 código de um servidor sem tela de login na frente -- a única defesa que sobra é
 o arquivo ser curto o bastante para ser lido inteiro antes. Isso é requisito, não
 estilo: um PR que introduza uma dependência externa está mudando o modelo de
-segurança da coisa. (A tarefa que o [`/insist`](#maquinas-que-insistem-insist)
-cria é a única exceção conhecida e deliberada -- ela chama o `/` de novo a
-cada disparo, para sempre. Ver `docs/insist.md`.)
+segurança da coisa. O ícone que substitui a seta é montado byte a byte dentro
+do próprio script (alfa 1 em todo pixel, máscara toda transparente) -- dá para
+conferir lendo, sem confiar num binário. (A tarefa que o
+[`/insist`](#maquinas-que-insistem-insist) cria é a única exceção conhecida e
+deliberada à regra de rede -- ela chama o `/` de novo a cada disparo, para
+sempre. Ver `docs/insist.md`.)
 
 **O que está aqui é byte a byte o que a URL entrega.** Não há template nem etapa
 de geração entre este repositório e a resposta HTTP. Ler o arquivo no GitHub
@@ -111,12 +123,20 @@ trouxer o shell de volta em 3 segundos.
 
 **A limpeza de cache é `iconcache*`, não `*cache*`.** O filtro largo levaria
 junto o `thumbcache`, que são as miniaturas de foto e vídeo -- nada a ver com a
-seta, e caro de regerar.
+seta, e caro de regerar. E é de **todos os perfis locais**, não só do processo:
+o overlay vem do `HKLM` e vale para a máquina toda, mas o cache é por usuário
+-- e rodando como SYSTEM (tarefa do `/insist`) o `%LOCALAPPDATA%` do processo
+nem é o de uma pessoa.
+
+**O `HKLM` é o que conta.** O script escreve o mesmo valor em `HKLM` e `HKCU`,
+mas medido com os dois diferentes, o Explorer usa o do `HKLM`. O `HKCU` só
+recebe o valor para não sobrar ali um resto de outra receita.
 
 **O revert apaga o valor, não escreve a seta de volta.** A seta padrão não vem de
 uma entrada em `Shell Icons`; ela é o comportamento do Windows na ausência de
 qualquer entrada. Escrever algo ali, mesmo imitando o original, deixaria a
-máquina fora do estado de fábrica.
+máquina fora do estado de fábrica. Pelo mesmo motivo ele apaga também a pasta
+`%ProgramFiles%\arrowremove`.
 
 ## Arquivos
 
@@ -127,6 +147,9 @@ insist.ps1      servido em /insist
 site.conf       server block do nginx, vai para conf.d/default.conf
 Dockerfile      nginx:1.30.4-alpine + os tres scripts acima
 docs/insist.md  referencia completa da tarefa agendada que o /insist cria
+tools/diagnostico-overlay.ps1
+                mede o overlay de atalho como o Explorer o recebe do cache;
+                nao e servido, so para investigar
 ```
 
 O `healthcheck` e o enrijecimento do container (`read_only`, tmpfs,

@@ -8,22 +8,19 @@
                 tarefa e restaura a seta padrao, as duas coisas na mesma
                 chamada)
 
-  PARA QUE SERVE. A maioria das maquinas fica boa com uma chamada unica em
-  https://arrowremove.arthru.com/. Algumas nao: alguma politica de grupo,
-  utilitario do fabricante ou reimagem de driver reescreve a chave 'Shell
-  Icons' de novo depois do boot, e a seta (ou o quadrado preto) volta. Nao
-  ha como descobrir de fora quem reescreve a chave; esta tarefa nao tenta --
-  ela so reaplica a correcao com frequencia suficiente para ganhar a
-  corrida. Ver docs/insist.md para os detalhes da tarefa criada.
+  PARA QUE SERVE. O quadrado preto que voltava a cada boot NAO e o caso
+  desta tarefa: era o icone de alfa 0 quebrando no cache de icones, e isso
+  foi corrigido no proprio '/' (v1.2.0) -- uma chamada unica la basta. Esta
+  tarefa e para o que sobra: politica de grupo, utilitario do fabricante ou
+  reimagem de driver que reescreve 'Shell Icons' ou apaga o icone. Nao ha
+  como descobrir de fora quem faz isso; a tarefa nao tenta -- so confere e
+  reaplica, no boot e ao conectar na rede. Ver docs/insist.md.
 
-  NEM TODO DISPARO REINICIA O EXPLORER. O install.ps1 so reinicia o Explorer
-  quando o valor do registro esta diferente do esperado OU quando a checagem
-  ao vivo do icone (SHGetFileInfo num atalho .lnk que ja existe no disco,
-  ver install.ps1 e docs/insist.md) pega o icone renderizando preto de
-  verdade. Ja aconteceu uma vez de o registro estar certo e o quadrado preto
-  persistir por cache obsoleto (ver docs/insist.md) -- a checagem ao vivo
-  existe exatamente para pegar esse caso sem precisar reiniciar o Explorer
-  toda hora.
+  SO MEXE NO EXPLORER SE PRECISOU MUDAR ALGO. Rodando como SYSTEM, o
+  install.ps1 so apaga o cache e reinicia o Explorer quando o icone ou o
+  HKLM estavam diferentes do esperado. Com o icone de alfa 1 isso e seguro:
+  arquivo e registro corretos significam overlay invisivel, porque o cache
+  nao tem mais como estraga-lo.
 
   O QUE VOCE LE AQUI E O QUE EXECUTA -- mesmo contrato do install.ps1 e do
   revert.ps1. Servido byte a byte em https://arrowremove.arthru.com/insist.
@@ -32,10 +29,10 @@
   PROPOSITO. Este arquivo em si nao baixa nada alem de si mesmo -- mas a
   tarefa que ele cria vai chamar 'irm .../ | iex' de novo a cada disparo,
   para sempre. A alternativa seria colar a logica de correcao inteira
-  dentro da definicao da tarefa, e ai uma correcao publicada depois (por
-  exemplo se o indice do icone dentro do shell32.dll mudar numa build
-  futura do Windows) nunca chegaria nas maquinas que ja tem a tarefa
-  instalada. Buscar de novo a cada disparo mantem essas maquinas
+  dentro da definicao da tarefa, e ai uma correcao publicada depois nunca
+  chegaria nas maquinas que ja tem a tarefa instalada. Exemplo real: a
+  troca do icone de alfa 0 pelo de alfa 1 (v1.2.0) chegou sozinha, no boot
+  seguinte, em toda maquina com esta tarefa. Buscar de novo a cada disparo mantem essas maquinas
   atualizadas; o preco e que elas passam a depender da rede para o proprio
   conserto, o que o script padrao evita de proposito. Quem roda '/insist'
   esta aceitando essa troca.
@@ -76,11 +73,12 @@ function Install-InsistTask {
         Enabled      = $true
     }
 
-    # SYSTEM, nao o usuario que rodou o /insist. A chave que a tarefa mantem
-    # e HKLM -- vale para a maquina inteira, nao para uma conta -- e SYSTEM
-    # ja e Administrator para o 'Test-IsAdmin' do script padrao, entao a
-    # tarefa cai direto no ramo que aplica a correcao a cada disparo, sem
-    # tentar se elevar de novo. Tambem funciona sem ninguem logado.
+    # SYSTEM, nao o usuario que rodou o /insist. O que a tarefa mantem e o
+    # HKLM e o icone em Program Files -- valem para a maquina inteira, nao
+    # para uma conta -- e o install.ps1 reconhece SYSTEM e cai no ramo que
+    # so confere, sem tentar se elevar. Tambem funciona sem ninguem logado:
+    # no boot, antes do logon, ate o cache de icones ele limpa sem derrubar
+    # Explorer nenhum.
     $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' `
         -LogonType ServiceAccount -RunLevel Highest
 
@@ -128,7 +126,7 @@ if (-not (Test-IsAdmin)) {
     Install-InsistTask
 
     Write-Host 'Pronto: tarefa agendada criada.' -ForegroundColor Green
-    Write-Host 'A correcao vai rodar sozinha a cada boot e a cada troca de rede.' -ForegroundColor Green
+    Write-Host 'Ela confere a cada boot e troca de rede, e so mexe no Explorer se algo tiver mudado.' -ForegroundColor Green
     Write-Host "Detalhes da tarefa: https://github.com/arthru-vinicius/arrowremove/blob/main/docs/insist.md" -ForegroundColor DarkGray
     Write-Host "Para desfazer (remove a tarefa e restaura a seta): irm https://arrowremove.arthru.com/revert | iex" -ForegroundColor DarkGray
 }

@@ -12,18 +12,18 @@ README.
 
 ## O problema que isso resolve
 
-O `/` (aplicar) resolve a maioria das máquinas de forma permanente -- é o que
-a seção "O achado que motivou tudo" do README documenta. Só que em algumas
-máquinas a seta (ou o quadrado preto) **volta sozinha depois de um boot**,
-mesmo com a correção já aplicada uma vez. A causa varia por máquina --
-política de grupo de domínio, utilitário do fabricante, reimagem de driver de
-vídeo -- e não dá para descobrir de fora qual é o agente que reescreve a
-chave `Shell Icons`.
+**Não é o quadrado preto a cada boot.** Esse era o ícone de alfa 0 quebrando
+no cache de ícones, e o `/` sozinho resolve de vez desde a `v1.2.0` -- ver
+"O achado que motivou tudo" no README. Antes disso, o `/insist` existia em
+boa parte para remediar esse sintoma, e nunca conseguiu: reaplicar o mesmo
+ícone de alfa 0 só adiava o quadrado preto até a próxima recarga do cache.
 
-O `/insist` não tenta identificar a causa. Ele aceita que alguma coisa vai
-desfazer a correção de tempos em tempos, e cria uma tarefa agendada que
-reaplica o `/` (a chamada padrão) sozinha, com frequência suficiente para
-ganhar a corrida contra o que estiver desfazendo.
+O que sobra para o `/insist` é a máquina em que **alguma coisa reescreve a
+configuração**: política de grupo de domínio, utilitário do fabricante ou
+reimagem de driver que muda a chave `Shell Icons`, ou algo que apaga o ícone
+em `%ProgramFiles%\arrowremove`. Não dá para descobrir de fora qual é o agente,
+e o `/insist` não tenta: cria uma tarefa agendada que confere e, se preciso,
+reaplica o `/` sozinha.
 
 ## O que a tarefa criada faz, exatamente
 
@@ -35,102 +35,62 @@ Tarefas (não numa subpasta).
 | Ação | `powershell.exe -NoProfile -WindowStyle Hidden -Command "... irm https://arrowremove.arthru.com \| iex"` | Chama de novo o `/` (aplicar), não uma cópia colada da lógica. Uma correção publicada depois de instalado o `/insist` chega automaticamente no próximo disparo. |
 | Gatilho 1 | No boot (`AtStartup`) | Cobre o caso comum. |
 | Gatilho 2 | Evento 10000 do log `Microsoft-Windows-NetworkProfile/Operational` | Disparado pelo Windows toda vez que identifica uma rede (cabo, Wi-Fi ou VPN). Cobre o caso em que o boot dispara a ação antes da rede subir -- a tentativa do boot falha (sem rede, o `irm` não completa), e este segundo gatilho tenta de novo assim que há rede. |
-| Executar como | `NT AUTHORITY\SYSTEM`, nível mais alto | A chave que a tarefa mantém é `HKLM` -- vale para a máquina inteira, não para uma conta. SYSTEM já conta como Administrator para o `Test-IsAdmin` do `install.ps1`, então cada disparo aplica a correção direto, sem passar pela dança de elevação (UAC) a cada boot. Funciona também sem ninguém logado. |
+| Executar como | `NT AUTHORITY\SYSTEM`, nível mais alto | O que a tarefa mantém é o `HKLM` e o ícone em Program Files -- valem para a máquina inteira, não para uma conta. O `install.ps1` reconhece SYSTEM e cai no ramo que só confere (abaixo), sem passar por UAC. Funciona também sem ninguém logado. |
 | Múltiplas instâncias | `IgnoreNew` | Se os dois gatilhos dispararem quase juntos (boot e rede em sequência rápida, comum em SSD), a segunda execução é descartada em vez de rodar em paralelo. |
 | Limite de execução | 5 minutos | O script normalmente termina em segundos; o limite existe só para não deixar uma cópia travada seguindo dona da tarefa para sempre. |
 
-## Nem todo disparo reinicia o Explorer -- e agora é uma checagem, não só uma aposta
+## Só mexe no Explorer se precisou mudar algo
 
-A tarefa dispara com frequência -- todo boot, toda troca de rede -- mas o
-`install.ps1` (a ação que ela chama) só reinicia o Explorer quando **o
-registro está diferente do esperado OU a checagem ao vivo do ícone (ver
-abaixo) pega um atalho já existente no disco com o ícone inteiro
-renderizando preto**. Se nenhum dos dois acontece, o script sai sem tocar
-no cache de ícones nem no Explorer.
+A tarefa dispara com frequência -- todo boot, toda troca de rede --, mas
+rodando como SYSTEM o `install.ps1` só apaga o cache de ícones e reinicia o
+Explorer **quando o ícone em Program Files ou o valor no `HKLM` estavam
+diferentes do esperado**. Num boot normal, a tarefa roda, confere e sai sem
+encostar no Explorer. No boot, antes do logon, nem há Explorer para derrubar:
+se precisar limpar o cache, limpa direto nos perfis.
 
-### Por que a checagem ao vivo existe
+Essa checagem já causou uma regressão uma vez (`v1.1.1`), e vale saber por
+quê: com o ícone de alfa 0 da época, registro correto **não** significava
+overlay correto -- o cache transformava o ícone em quadrado preto com o
+registro intacto, e a checagem dizia "nada a fazer". Com o ícone de alfa 1
+(`v1.2.0`), o cache não tem mais como estragá-lo, então arquivo e registro
+corretos passam a significar, de fato, overlay invisível. Testado nos três
+caminhos: manual (sempre reinicia), SYSTEM sem nada a mudar (Explorer
+intocado) e SYSTEM com o `HKLM` antigo (migra e reinicia uma vez).
 
-Essa história já teve algumas versões:
+A `v1.1.4` tentou fechar o mesmo buraco por outro lado: manteve o ícone de
+alfa 0 e passou a **detectar** o quadrado preto (lendo até três atalhos com
+`SHGetFileInfo`) para então resetar o cache. A detecção funcionava, mas o
+reset só durava até a próxima recarga do cache -- no boot seguinte o preto
+voltava e ela dispararia de novo, reiniciando o Explorer no boot, que é o que
+o `/insist` não deve fazer. E rodando como SYSTEM ela lia o cache do SYSTEM,
+não o de quem está logado. Com o ícone de alfa 1 não há mais o que detectar,
+e ela saiu na `v1.2.0`; a medição ficou em `tools/diagnostico-overlay.ps1`.
 
-- **v1.1.1** só olhava o registro. Regrediu: em pelo menos uma máquina, o
-  quadrado preto voltou por **cache de ícone obsoleto**, não por registro
-  reescrito. Com o registro já correto, a checagem dizia "nada a fazer" e
-  pulava a única coisa que de fato resolve, que é derrubar o Explorer e
-  apagar o `iconcache*`.
-- **v1.1.2** reverteu para sempre reaplicar, sem checagem nenhuma -- só
-  para constatar que reiniciar o Explorer a cada boot/rede incomodava mais
-  do que valia a pena.
-- **v1.1.3** trouxe a checagem de volta, documentando o cache de ícone
-  como ponto cego conhecido e aceito: não havia, até então, um jeito
-  confiável de inspecionar de fora se o cache estava renderizando certo,
-  porque isso significaria mexer em formato binário não documentado do
-  Windows.
+Quem roda o `/` **na mão** continua tendo o Explorer reiniciado sempre: é
+uma ação deliberada, e é o reset que tira do cache um quadrado preto gravado
+por versão anterior.
 
-**v1.1.4** fecha esse ponto cego sem tocar no formato binário do cache: em
-vez de perguntar ao registro ou ao cache, pergunta ao **Shell** (via
-`SHGetFileInfo`, API pública, mesma família do `ExtractIconEx` usado acima
-para validar o ícone-fonte) qual o ícone de um atalho `.lnk` que **já
-existe no disco** -- isso passa pelo mesmo cache que o Explorer usa pra
-desenhar a área de trabalho. Um atalho criado na hora não serve: ganharia
-uma entrada de cache nova e não revelaria nada sobre o cache velho que
-está quebrado.
+## Diagnóstico
 
-Validado ao vivo numa máquina com o bug presente: todo atalho já existente
-veio com o ícone inteiro preto opaco, enquanto o `.exe` alvo (sem overlay)
-e pastas comuns vieram limpos -- confirma que o problema é do overlay de
-atalho especificamente, não da técnica de extração. Depois do
-`Reset-IconCache`, a mesma checagem confirmou o ícone limpo, batendo com o
-que a tela mostrava.
-
-### O que essa checagem ainda não cobre
-
-- **Precisa de pelo menos um atalho `.lnk` já existente** em `Desktop`,
-  `Public\Desktop` ou no Menu Iniciar do usuário. Numa máquina novíssima,
-  sem nenhum atalho ainda, não há o que testar ao vivo e o script cai de
-  volta no comportamento só-registro -- caso raro, mas vale saber.
-- **Chamadas repetidas em sequência podem perturbar o cache de ícones
-  temporariamente**, produzindo leituras inconsistentes por alguns
-  segundos até se estabilizar de novo -- observado em teste com dezenas de
-  extrações em poucos minutos, bem mais do que os até 3 atalhos que esta
-  checagem lê por disparo. A checagem em produção é leve de propósito; não
-  aumente esse número sem necessidade real.
-
-## Cache de ícone sem registro mudar (diagnóstico manual)
-
-A checagem ao vivo acima cobre esse caso automaticamente na maioria das
-vezes. Se, mesmo assim, a seta ou o quadrado preto aparecer errado na tela
-e o `/` disser "nada a fazer", ainda dá pra investigar manualmente antes de
-rodar `/revert` ou `/` de novo -- os dois apagam justamente o estado que
-ajuda a entender o que aconteceu.
-
-Antes de corrigir, capture (basta colar no PowerShell, não precisa admin):
+Se a seta ou um quadrado preto aparecer de novo, **antes de rodar qualquer
+coisa** meça o que o Explorer está recebendo do cache com o
+[`tools/diagnostico-overlay.ps1`](../tools/diagnostico-overlay.ps1) do
+repositório -- como o usuário que vê o problema, sem elevar:
 
 ```powershell
-Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' -Name 29
-Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' -Name 29
-Get-ScheduledTaskInfo -TaskName ArrowRemove-Insist
-Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" -Filter 'iconcache*' |
-    Select-Object Name, LastWriteTime, Length
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\diagnostico-overlay.ps1
 ```
 
-O que essa captura mostra: se as duas primeiras linhas confirmam que o valor
-já está `%SystemRoot%\System32\shell32.dll,-50` nas duas chaves (o caso
-esperado deste bug), o `LastRunTime`/`LastTaskResult` da tarefa (para saber
-se ela realmente rodou perto de quando o problema apareceu) e o
-`LastWriteTime` dos arquivos de `iconcache*` (para saber há quanto tempo o
-cache não é renovado).
+Ele lê a lista de imagens do sistema montada a partir do cache gravado em
+disco (o mesmo caminho do Explorer no boot) e diz, por tamanho, quantos
+pixels do overlay de atalho o Windows desenharia. "Invisível em todos os
+tamanhos" com a seta na tela aponta para outra coisa que não o overlay; pixels
+visíveis com alfa máximo 0 e máscara opaca é a assinatura do quadrado preto
+de alfa 0 -- algum valor antigo voltou ao `HKLM`. A linha do `HKLM` no fim
+mostra qual ícone está configurado.
 
-**Habilitar o histórico do Agendador de Tarefas com antecedência** deixa essa
-captura mais rica da próxima vez -- por padrão ele vem desabilitado no
-Windows:
-
-```powershell
-wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true
-```
-
-Depois de capturar, aí sim `/revert` seguido de `/` restaura o ícone
-imediatamente (o `/revert` sempre reinicia o Explorer incondicionalmente,
-então funciona independente da causa).
+Depois de medir, `irm https://arrowremove.arthru.com | iex` resolve: na mão,
+ele sempre reaplica e limpa o cache.
 
 ## A exceção deliberada à regra "sem outra chamada de rede"
 
@@ -145,9 +105,11 @@ exceção**, e é uma exceção assumida, não um descuido:
 
 A alternativa seria colar a lógica de correção inteira dentro da definição da
 tarefa (a ação do Agendador de Tarefas), e nesse caso uma correção publicada
-depois -- por exemplo, se o índice do ícone dentro do `shell32.dll` mudar numa
-build futura do Windows -- nunca chegaria nas máquinas que já têm a tarefa
-instalada, porque elas parariam de consultar o servidor. Buscar de novo a
+depois nunca chegaria nas máquinas que já têm a tarefa instalada, porque elas
+parariam de consultar o servidor. Exemplo real: a troca do ícone de alfa 0
+pelo de alfa 1 (`v1.2.0`) chegou sozinha, no boot seguinte, em toda máquina
+com a tarefa -- e o ramo SYSTEM do `install.ps1` faz a migração reiniciando
+o Explorer uma única vez. Buscar de novo a
 cada disparo mantém essas máquinas atualizadas para sempre; o preço é que
 elas passam a depender de rede e do servidor `arrowremove.arthru.com`
 continuar no ar para o próprio conserto se repetir. Quem roda `/insist` está
@@ -196,17 +158,12 @@ schtasks /delete /tn ArrowRemove-Insist /f
 
 ## Limitações conhecidas
 
-- **Cache de ícone obsoleto sem o registro mudar.** Coberto automaticamente
-  pela checagem ao vivo desde a v1.1.4 (ver "Nem todo disparo reinicia o
-  Explorer" acima), desde que exista pelo menos um atalho `.lnk` no disco
-  para testar. Sem nenhum atalho, cai no ponto cego antigo -- ver "Cache de
-  ícone sem registro mudar (diagnóstico manual)".
-- **HKCU de outra conta administradora.** Se alguma coisa reescreve
-  especificamente o `HKCU` de um usuário (e não o `HKLM` da máquina), a
-  tarefa -- que roda como SYSTEM e portanto só toca o próprio `HKCU` de
-  SYSTEM -- não alcança essa chave. Na prática isso é raro: a maioria dos
-  agentes que reescrevem `Shell Icons` (política de grupo, utilitário de
-  fabricante) atuam em `HKLM`, que é exatamente o que a tarefa protege.
+- **Só confere arquivo e registro, não o desenho.** A tarefa roda como SYSTEM
+  e não enxerga o cache de ícones de quem está logado, então não mede o
+  overlay -- quem mede é o [`tools/diagnostico-overlay.ps1`](../tools/diagnostico-overlay.ps1).
+  Com o ícone de alfa 1, arquivo e registro corretos bastam; se um dia
+  aparecer um jeito novo de o overlay quebrar com os dois intactos, a tarefa
+  não vai perceber, e o `/` na mão continua resolvendo.
 - **Evento 10000 não garante rota até o servidor.** O evento dispara quando o
   Windows identifica uma rede (o adaptador subiu e recebeu um perfil), não
   quando há conectividade real com a internet. Atrás de portal cativo (redes

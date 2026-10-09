@@ -10,8 +10,14 @@
   https://arrowremove.arthru.com -- nao ha template, nao ha geracao, nao ha
   etapa intermediaria entre o que esta no GitHub e o que o 'irm' baixa.
 
+  O QUE ELE FAZ: gera um icone praticamente transparente em
+  %ProgramFiles%\arrowremove\sem-seta.ico, aponta 'Shell Icons\29' para ele,
+  apaga o cache de icones e deixa o Explorer voltar. O porque de gerar um
+  icone em vez de usar um do Windows esta logo abaixo, em $IconDir.
+
   AUTOCONTIDO POR DECISAO, NAO POR FALTA DE IDEIA. Ele nao baixa mais nada
-  alem de si mesmo e nao faz nenhuma outra chamada de rede. Quem roda
+  alem de si mesmo e nao faz nenhuma outra chamada de rede -- o icone e
+  montado byte a byte aqui, sem arquivo binario embutido. Quem roda
   'irm | iex' esta executando codigo de um servidor sem tela de login na
   frente -- a unica defesa que sobra e o arquivo ser curto o bastante para
   ser lido inteiro antes. Manter assim e requisito, nao estilo.
@@ -28,28 +34,29 @@ $ErrorActionPreference = 'Stop'
 
 $SelfUrl = 'https://arrowremove.arthru.com'
 
-# Recurso JA EMBUTIDO no shell32.dll do proprio Windows: o indice -50 e um
-# icone inteiramente transparente. Conferido programaticamente com
-# ExtractIconEx -- 0 de 1024 pixels opacos.
+# O ICONE QUE SUBSTITUI A SETA E GERADO AQUI MESMO, e nao vem de DLL nenhuma.
+# Todo icone "totalmente transparente" -- alfa 0 em todo pixel, seja um .ico
+# proprio, seja o shell32.dll,-50 que este script usou ate a v1.1.3 -- vira
+# um QUADRADO PRETO na primeira vez que o Explorer o recarrega do cache de
+# icones: na volta, o cache entrega mascara opaca e alfa zerado, o Windows
+# conclui "imagem sem canal alfa" e pinta a cor crua, que e preta. Recarga
+# do cache acontece a cada boot, a cada reinicio do Explorer e depois de
+# qualquer instalacao que mexa no shell. Medido e reproduzido -- ver o README.
 #
-# NAO troque por um caminho de .ico proprio. Foi a primeira tentativa e ela
-# falha tarde: o icone e aceito, a seta some, e depois de alguns reboots o
-# Windows 11 passa a desenhar um QUADRADO PRETO no lugar dela. Reproduzido
-# tanto com mascara classica AND/XOR quanto com PNG multi-resolucao com canal
-# alfa, e relatado por outras pessoas com a mesma tecnica -- nao e um .ico mal
-# formado nem uma maquina especifica. Ver o README.
-$IconValue = '%SystemRoot%\System32\shell32.dll,-50'
+# A saida e alfa 1 (de 255) em todo pixel: 0,4% de opacidade, invisivel a
+# olho (medido: no maximo 2/255 de diferenca no desenho), mas o canal alfa
+# sobrevive ao cache e o Windows passa a misturar pelo alfa em vez de pintar
+# a mascara. NAO troque por um icone de alfa 0, de lugar nenhum.
+$IconDir = Join-Path $env:ProgramFiles 'arrowremove'
+$IconPath = Join-Path $IconDir 'sem-seta.ico'
+$IconValue = "$IconPath,0"
 
 # 29 e o indice da sobreposicao de atalho na tabela 'Shell Icons'.
 $OverlayIndex = '29'
 
-# Os dois lugares, de proposito. O HKLM e o que vale para a maquina inteira e
-# e por ele que este script precisa de administrador. O HKCU cobre o caso de
-# um perfil ja ter a chave definida, porque ali ela tem precedencia.
-#
-# Detalhe do HKCU sob elevacao: se voce responder ao UAC com a senha de OUTRA
-# conta de administrador, o HKCU do processo elevado sera o daquela conta, nao
-# o seu. O efeito continua valendo pelo HKLM.
+# O HKLM e o que o Explorer usa: medido com os dois definidos e diferentes,
+# vale o do HKLM. O HKCU recebe o mesmo valor so para nao sobrar ali um valor
+# antigo (de versao anterior ou de outra receita) apontando para outro icone.
 $ShellIconsKeys = @(
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons',
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons'
@@ -61,16 +68,105 @@ function Test-IsAdmin {
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Test-IsSystem {
+    [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -eq 'S-1-5-18'
+}
+
+function New-OverlayIconBytes {
+    # Um .ico com um BMP de 32 bits por tamanho. Tamanhos explicitos para o
+    # Windows nao precisar redimensionar; e alfa 1 em TODOS os pixels, e nao
+    # num pixel so, para que nenhum redimensionamento (DPI fora do padrao)
+    # consiga zerar o alfa de novo. Mascara AND toda transparente (bit 1).
+    $sizes = 16, 20, 24, 32, 40, 48, 64, 96, 128, 256
+    $images = foreach ($s in $sizes) {
+        $pixels = [byte[]]::new($s * $s * 4)
+        for ($i = 3; $i -lt $pixels.Length; $i += 4) { $pixels[$i] = 1 }
+        $mask = [byte[]]::new([int]([math]::Ceiling($s / 32) * 4) * $s)
+        for ($i = 0; $i -lt $mask.Length; $i++) { $mask[$i] = 0xFF }
+
+        $ms = New-Object IO.MemoryStream
+        $bw = New-Object IO.BinaryWriter $ms
+        # BITMAPINFOHEADER: altura dobrada porque cor e mascara vem empilhadas.
+        $bw.Write([int]40); $bw.Write([int]$s); $bw.Write([int]($s * 2))
+        $bw.Write([int16]1); $bw.Write([int16]32); $bw.Write([int]0)
+        $bw.Write([int]($pixels.Length + $mask.Length))
+        $bw.Write([int]0); $bw.Write([int]0); $bw.Write([int]0); $bw.Write([int]0)
+        $bw.Write($pixels); $bw.Write($mask); $bw.Flush()
+        , $ms.ToArray()
+    }
+
+    $out = New-Object IO.MemoryStream
+    $w = New-Object IO.BinaryWriter $out
+    $w.Write([int16]0); $w.Write([int16]1); $w.Write([int16]$sizes.Count)
+    $offset = 6 + 16 * $sizes.Count
+    for ($i = 0; $i -lt $sizes.Count; $i++) {
+        # No diretorio do .ico, 256 se escreve 0 -- o campo tem um byte so.
+        $dim = if ($sizes[$i] -ge 256) { 0 } else { $sizes[$i] }
+        $w.Write([byte]$dim); $w.Write([byte]$dim); $w.Write([byte]0); $w.Write([byte]0)
+        $w.Write([int16]1); $w.Write([int16]32)
+        $w.Write([int]$images[$i].Length); $w.Write([int]$offset)
+        $offset += $images[$i].Length
+    }
+    foreach ($img in $images) { $w.Write($img) }
+    $w.Flush()
+    $out.ToArray()
+}
+
+function Install-OverlayIcon {
+    # Devolve $true se precisou escrever. Em Program Files, e nao em pasta de
+    # usuario, porque quem nao e administrador nao deve poder trocar o icone
+    # que o HKLM aponta para a maquina inteira.
+    $novo = New-OverlayIconBytes
+    if (Test-Path $IconPath) {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $hashAtual = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($IconPath)))
+        if ($hashAtual -eq [BitConverter]::ToString($sha.ComputeHash($novo))) {
+            return $false
+        }
+    }
+    New-Item -ItemType Directory -Path $IconDir -Force | Out-Null
+    [IO.File]::WriteAllBytes($IconPath, $novo)
+    return $true
+}
+
+function Set-OverlayValue {
+    # Devolve $true se o HKLM estava diferente. So o HKLM conta para a decisao
+    # porque e so ele que muda o que o Explorer desenha.
+    $mudou = $false
+    foreach ($key in $ShellIconsKeys) {
+        $atual = (Get-ItemProperty -Path $key -Name $OverlayIndex `
+            -ErrorAction SilentlyContinue).$OverlayIndex
+        if ($atual -ne $IconValue -and $key -like 'HKLM:*') {
+            $mudou = $true
+        }
+        if (-not (Test-Path $key)) {
+            New-Item -Path $key -Force | Out-Null
+        }
+        New-ItemProperty -Path $key -Name $OverlayIndex -Value $IconValue `
+            -PropertyType String -Force | Out-Null
+    }
+    return $mudou
+}
+
 function Reset-IconCache {
     # A ORDEM IMPORTA. Com o explorer no ar os arquivos de cache ficam
     # bloqueados e o Remove-Item falha calado -- por isso apagamos
     # imediatamente depois de derrubar o shell, sem espera no meio.
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 
-    Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Windows\Explorer" `
-        -Filter 'iconcache*' -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-    Remove-Item "$env:LOCALAPPDATA\IconCache.db" -Force -ErrorAction SilentlyContinue
+    # O cache e por usuario, e o overlay vem do HKLM, que vale para todos:
+    # apaga o de todo perfil local, nao so o deste processo. Isso tambem cobre
+    # a tarefa do /insist, que roda como SYSTEM, e quem respondeu ao UAC com
+    # OUTRA conta de administrador -- nos dois casos o $env:LOCALAPPDATA daqui
+    # nao e o de quem esta na frente da tela.
+    $locais = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' |
+        Where-Object { $_.PSChildName -like 'S-1-5-21-*' } |
+        ForEach-Object { Join-Path $_.GetValue('ProfileImagePath') 'AppData\Local' })
+    foreach ($local in ($locais + $env:LOCALAPPDATA | Select-Object -Unique)) {
+        Get-ChildItem "$local\Microsoft\Windows\Explorer" -Filter 'iconcache*' `
+            -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Remove-Item "$local\IconCache.db" -Force -ErrorAction SilentlyContinue
+    }
 
     # 'thumbcache*' fica de fora. Sao as miniaturas de foto e video, nao tem
     # relacao nenhuma com a seta, e regerar aquilo numa pasta grande custa
@@ -79,101 +175,12 @@ function Reset-IconCache {
     # O Winlogon reabre o shell sozinho (AutoRestartShell=1, padrao do
     # Windows). So forcamos se ele nao voltar, e de proposito: um explorer
     # aberto DAQUI herdaria o token elevado deste processo, e todo programa
-    # aberto por ele depois subiria elevado junto.
+    # aberto por ele depois subiria elevado junto. Como SYSTEM, nunca: no boot
+    # ainda nao ha shell de ninguem, e um explorer como SYSTEM seria pior.
     Start-Sleep -Seconds 3
-    if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) {
+    if (-not (Test-IsSystem) -and -not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) {
         Start-Process explorer.exe
     }
-}
-
-# Deteccao ao vivo do quadrado preto, sem depender do registro. A tecnica:
-# pedir ao Shell (SHGetFileInfo, API publica, mesma familia do ExtractIconEx
-# usado acima para validar o icone) o icone de um atalho .lnk que JA EXISTE no
-# disco -- isso passa pelo mesmo cache que o Explorer usa pra desenhar a area
-# de trabalho. Um atalho criado agora nao serve: ganharia uma entrada de cache
-# nova e nao revelaria nada sobre o cache velho que esta quebrado.
-#
-# Verificado ao vivo numa maquina com o bug: todo atalho ja existente no disco
-# veio com o icone inteiro preto opaco, enquanto o .exe alvo (sem overlay) e
-# pastas comuns vieram limpos -- o problema e do overlay de atalho
-# especificamente, nao da extracao em si. Ver docs/insist.md.
-Add-Type -AssemblyName System.Drawing
-
-Add-Type -Namespace ArrowRemoveShell -Name Icone -MemberDefinition @'
-    [StructLayout(LayoutKind.Sequential)]
-    public struct SHFILEINFO {
-        public IntPtr hIcon;
-        public int iIcon;
-        public uint dwAttributes;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-        public string szDisplayName;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
-        public string szTypeName;
-    }
-
-    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
-    public static extern IntPtr SHGetFileInfo(string pszPath,
-        uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
-
-    [DllImport("user32.dll")]
-    public static extern bool DestroyIcon(IntPtr hIcon);
-'@
-
-$SHGFI_ICON = 0x100
-$SHGFI_LARGEICON = 0x0
-
-function Test-IconeInteiramentePreto([string]$caminho) {
-    $info = New-Object ArrowRemoveShell.Icone+SHFILEINFO
-    $tamanho = [Runtime.InteropServices.Marshal]::SizeOf($info)
-    $ok = [ArrowRemoveShell.Icone]::SHGetFileInfo($caminho, 0, [ref]$info,
-        $tamanho, $SHGFI_ICON -bor $SHGFI_LARGEICON)
-    if ($ok -eq [IntPtr]::Zero -or $info.hIcon -eq [IntPtr]::Zero) {
-        return $null
-    }
-    try {
-        $bmp = [Drawing.Icon]::FromHandle($info.hIcon).ToBitmap()
-        $pretos = 0
-        $total = $bmp.Width * $bmp.Height
-        for ($y = 0; $y -lt $bmp.Height; $y++) {
-            for ($x = 0; $x -lt $bmp.Width; $x++) {
-                $p = $bmp.GetPixel($x, $y)
-                if ($p.A -gt 200 -and $p.R -lt 30 -and $p.G -lt 30 -and $p.B -lt 30) {
-                    $pretos++
-                }
-            }
-        }
-        $bmp.Dispose()
-        return ($pretos / $total) -ge 0.9
-    } finally {
-        [ArrowRemoveShell.Icone]::DestroyIcon($info.hIcon) | Out-Null
-    }
-}
-
-function Test-OverlayQuebrado {
-    # Ate 3 atalhos existentes -- nunca um criado agora, ver comentario acima.
-    # Sem nenhum atalho no disco pra testar, nao ha como checar ao vivo; o
-    # registro continua sendo o unico sinal disponivel nesse caso raro.
-    $candidatos = @(
-        "$env:USERPROFILE\Desktop\*.lnk",
-        "$env:PUBLIC\Desktop\*.lnk",
-        "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\*.lnk"
-    ) | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
-        Select-Object -First 3
-
-    if (-not $candidatos) {
-        return $false
-    }
-
-    $resultados = $candidatos | ForEach-Object {
-        Test-IconeInteiramentePreto $_.FullName
-    } | Where-Object { $null -ne $_ }
-
-    if (-not $resultados) {
-        return $false
-    }
-
-    $quebrados = ($resultados | Where-Object { $_ }).Count
-    return $quebrados -ge [Math]::Ceiling($resultados.Count / 2.0)
 }
 
 if (-not (Test-IsAdmin)) {
@@ -195,51 +202,27 @@ if (-not (Test-IsAdmin)) {
     } catch {
         Write-Host 'Elevacao recusada -- nada foi alterado.' -ForegroundColor Red
     }
-} else {
-    # So reaplicamos de verdade (com o reinicio do Explorer que isso implica)
-    # quando o registro esta diferente do esperado OU quando a checagem ao
-    # vivo (Test-OverlayQuebrado, acima) pega um atalho ja existente
-    # renderizando com o icone inteiro preto. A primeira versao desse
-    # comportamento condicional (v1.1.1) so olhava o registro e regrediu:
-    # o quadrado preto voltava por cache de icone obsoleto SEM o registro
-    # mudar, e a checagem dizia "nada a fazer" as cegas. A checagem ao vivo
-    # existe exatamente pra fechar esse buraco sem voltar a reiniciar o
-    # Explorer sempre (v1.1.2) nem aceitar o risco as cegas (v1.1.3). Ver
-    # docs/insist.md para o historico completo e os limites do que a
-    # checagem ao vivo cobre.
-    $precisaCorrigir = $false
-    foreach ($key in $ShellIconsKeys) {
-        $atual = (Get-ItemProperty -Path $key -Name $OverlayIndex `
-            -ErrorAction SilentlyContinue).$OverlayIndex
-        if ($atual -ne $IconValue) {
-            $precisaCorrigir = $true
-        }
-
-        if (-not (Test-Path $key)) {
-            New-Item -Path $key -Force | Out-Null
-        }
-        # -Force sobrescreve o valor se ele ja existir, o que torna rodar de
-        # novo inofensivo.
-        New-ItemProperty -Path $key -Name $OverlayIndex -Value $IconValue `
-            -PropertyType String -Force | Out-Null
-    }
-
-    $motivoOverlay = $false
-    if (-not $precisaCorrigir -and (Test-OverlayQuebrado)) {
-        $precisaCorrigir = $true
-        $motivoOverlay = $true
-    }
-
-    if ($precisaCorrigir) {
+} elseif (Test-IsSystem) {
+    # Chamado pela tarefa do /insist, a cada boot e troca de rede. Aqui, e so
+    # aqui, "nada mudou" basta para nao mexer no Explorer: com o icone de alfa
+    # 1, arquivo e HKLM corretos significam overlay invisivel, porque o cache
+    # nao tem mais como estraga-lo. Com o icone de alfa 0 (ate a v1.1.3) isso
+    # nao era verdade, e essa mesma checagem ja causou regressao uma vez.
+    $mudouIcone = Install-OverlayIcon
+    $mudouRegistro = Set-OverlayValue
+    if ($mudouIcone -or $mudouRegistro) {
         Reset-IconCache
-        if ($motivoOverlay) {
-            Write-Host 'Pronto: o registro ja estava certo, mas o icone de atalho estava preto -- cache de icone resetado.' -ForegroundColor Green
-        } else {
-            Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
-        }
-    } else {
-        Write-Host 'Registro ja estava correto e o icone de atalho renderiza certo -- nada para fazer, Explorer nao foi reiniciado.' -ForegroundColor Green
     }
+} else {
+    Install-OverlayIcon | Out-Null
+    Set-OverlayValue | Out-Null
+
+    # Chamado por uma pessoa: sempre reinicia. Quem roda na mao quer ver o
+    # efeito agora, e e o reset que tira do cache um quadrado preto gravado
+    # por uma versao anterior deste script ou por outra receita.
+    Reset-IconCache
+
+    Write-Host 'Pronto: setinhas removidas.' -ForegroundColor Green
 
     # Tela de ajuda curta com os outros dois comandos. Fica so aqui, no
     # aplicar -- e o comando padrao, entao e onde a maioria das pessoas vai
@@ -249,9 +232,9 @@ if (-not (Test-IsAdmin)) {
     Write-Host "  irm $SelfUrl/revert | iex" -ForegroundColor DarkGray
     Write-Host '    reverte: restaura a seta padrao do Windows.' -ForegroundColor DarkGray
     Write-Host "  irm $SelfUrl/insist | iex" -ForegroundColor DarkGray
-    Write-Host '    para maquinas que voltam a mostrar o quadrado preto a' -ForegroundColor DarkGray
-    Write-Host '    cada boot: cria uma tarefa agendada que reaplica esta' -ForegroundColor DarkGray
-    Write-Host '    correcao sozinha, no boot e ao conectar na rede.' -ForegroundColor DarkGray
+    Write-Host '    para maquinas em que algo desfaz a correcao: cria uma' -ForegroundColor DarkGray
+    Write-Host '    tarefa que confere no boot e ao conectar na rede, e so' -ForegroundColor DarkGray
+    Write-Host '    reaplica (e reinicia o Explorer) se algo tiver mudado.' -ForegroundColor DarkGray
     Write-Host ''
     Write-Host 'Detalhes: https://github.com/arthru-vinicius/arrowremove#maquinas-que-insistem-insist' -ForegroundColor DarkGray
 }

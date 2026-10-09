@@ -9,7 +9,7 @@ irm https://arrowremove.arthru.com/insist | iex   # reaplica sozinho a cada boot
 ```
 
 O script pede elevação (a chave fica em `HKLM`), gera um ícone praticamente
-transparente em `%ProgramFiles%\arrowremove\sem-seta.ico`, aponta a seta de
+transparente em `%ProgramFiles%\arrowremove\no-arrow.ico`, aponta a seta de
 atalho para ele, limpa o cache de ícones, reinicia o Explorer e termina. Não
 baixa mais nada e não faz nenhuma outra chamada de rede.
 
@@ -41,7 +41,7 @@ shell de mudança de associação. Por isso o quadrado preto parecia ligado a
 
 Medido em Windows 11 build 26300, lendo a lista de imagens do sistema pela API
 documentada (`SHGetImageList` + `GetOverlayImage`, ver
-[`tools/diagnostico-overlay.ps1`](tools/diagnostico-overlay.ps1)):
+[`tools/diagnose-overlay.ps1`](tools/diagnose-overlay.ps1)):
 
 | Overlay (depois de recarregar do cache) | 16px | 32px | 48px |
 |---|---|---|---|
@@ -147,7 +147,7 @@ insist.ps1      servido em /insist
 site.conf       server block do nginx, vai para conf.d/default.conf
 Dockerfile      nginx:1.30.4-alpine + os tres scripts acima
 docs/insist.md  referencia completa da tarefa agendada que o /insist cria
-tools/diagnostico-overlay.ps1
+tools/diagnose-overlay.ps1
                 mede o overlay de atalho como o Explorer o recebe do cache;
                 nao e servido, so para investigar
 ```

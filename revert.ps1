@@ -76,13 +76,13 @@ function Reset-IconCache {
     # Todo perfil local, pelo mesmo motivo do install.ps1: o overlay vem do
     # HKLM e vale para todos, mas o cache que guarda o desenho dele e por
     # usuario.
-    $locais = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' |
+    $profileDirs = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' |
         Where-Object { $_.PSChildName -like 'S-1-5-21-*' } |
         ForEach-Object { Join-Path $_.GetValue('ProfileImagePath') 'AppData\Local' })
-    foreach ($local in ($locais + $env:LOCALAPPDATA | Select-Object -Unique)) {
-        Get-ChildItem "$local\Microsoft\Windows\Explorer" -Filter 'iconcache*' `
+    foreach ($localAppData in ($profileDirs + $env:LOCALAPPDATA | Select-Object -Unique)) {
+        Get-ChildItem "$localAppData\Microsoft\Windows\Explorer" -Filter 'iconcache*' `
             -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-        Remove-Item "$local\IconCache.db" -Force -ErrorAction SilentlyContinue
+        Remove-Item "$localAppData\IconCache.db" -Force -ErrorAction SilentlyContinue
     }
 
     # 'thumbcache*' fica de fora: sao as miniaturas de foto e video, e regerar

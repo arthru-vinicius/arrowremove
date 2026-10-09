@@ -64,7 +64,7 @@ reset só durava até a próxima recarga do cache -- no boot seguinte o preto
 voltava e ela dispararia de novo, reiniciando o Explorer no boot, que é o que
 o `/insist` não deve fazer. E rodando como SYSTEM ela lia o cache do SYSTEM,
 não o de quem está logado. Com o ícone de alfa 1 não há mais o que detectar,
-e ela saiu na `v1.2.0`; a medição ficou em `tools/diagnostico-overlay.ps1`.
+e ela saiu na `v1.2.0`; a medição ficou em `tools/diagnose-overlay.ps1`.
 
 Quem roda o `/` **na mão** continua tendo o Explorer reiniciado sempre: é
 uma ação deliberada, e é o reset que tira do cache um quadrado preto gravado
@@ -74,11 +74,11 @@ por versão anterior.
 
 Se a seta ou um quadrado preto aparecer de novo, **antes de rodar qualquer
 coisa** meça o que o Explorer está recebendo do cache com o
-[`tools/diagnostico-overlay.ps1`](../tools/diagnostico-overlay.ps1) do
+[`tools/diagnose-overlay.ps1`](../tools/diagnose-overlay.ps1) do
 repositório -- como o usuário que vê o problema, sem elevar:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\diagnostico-overlay.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\diagnose-overlay.ps1
 ```
 
 Ele lê a lista de imagens do sistema montada a partir do cache gravado em
@@ -160,7 +160,7 @@ schtasks /delete /tn ArrowRemove-Insist /f
 
 - **Só confere arquivo e registro, não o desenho.** A tarefa roda como SYSTEM
   e não enxerga o cache de ícones de quem está logado, então não mede o
-  overlay -- quem mede é o [`tools/diagnostico-overlay.ps1`](../tools/diagnostico-overlay.ps1).
+  overlay -- quem mede é o [`tools/diagnose-overlay.ps1`](../tools/diagnose-overlay.ps1).
   Com o ícone de alfa 1, arquivo e registro corretos bastam; se um dia
   aparecer um jeito novo de o overlay quebrar com os dois intactos, a tarefa
   não vai perceber, e o `/` na mão continua resolvendo.

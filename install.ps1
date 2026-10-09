@@ -11,7 +11,7 @@
   etapa intermediaria entre o que esta no GitHub e o que o 'irm' baixa.
 
   O QUE ELE FAZ: gera um icone praticamente transparente em
-  %ProgramFiles%\arrowremove\sem-seta.ico, aponta 'Shell Icons\29' para ele,
+  %ProgramFiles%\arrowremove\no-arrow.ico, aponta 'Shell Icons\29' para ele,
   apaga o cache de icones e deixa o Explorer voltar. O porque de gerar um
   icone em vez de usar um do Windows esta logo abaixo, em $IconDir.
 
@@ -48,7 +48,7 @@ $SelfUrl = 'https://arrowremove.arthru.com'
 # sobrevive ao cache e o Windows passa a misturar pelo alfa em vez de pintar
 # a mascara. NAO troque por um icone de alfa 0, de lugar nenhum.
 $IconDir = Join-Path $env:ProgramFiles 'arrowremove'
-$IconPath = Join-Path $IconDir 'sem-seta.ico'
+$IconPath = Join-Path $IconDir 'no-arrow.ico'
 $IconValue = "$IconPath,0"
 
 # 29 e o indice da sobreposicao de atalho na tabela 'Shell Icons'.
@@ -116,28 +116,28 @@ function Install-OverlayIcon {
     # Devolve $true se precisou escrever. Em Program Files, e nao em pasta de
     # usuario, porque quem nao e administrador nao deve poder trocar o icone
     # que o HKLM aponta para a maquina inteira.
-    $novo = New-OverlayIconBytes
+    $newBytes = New-OverlayIconBytes
     if (Test-Path $IconPath) {
         $sha = [Security.Cryptography.SHA256]::Create()
-        $hashAtual = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($IconPath)))
-        if ($hashAtual -eq [BitConverter]::ToString($sha.ComputeHash($novo))) {
+        $currentHash = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($IconPath)))
+        if ($currentHash -eq [BitConverter]::ToString($sha.ComputeHash($newBytes))) {
             return $false
         }
     }
     New-Item -ItemType Directory -Path $IconDir -Force | Out-Null
-    [IO.File]::WriteAllBytes($IconPath, $novo)
+    [IO.File]::WriteAllBytes($IconPath, $newBytes)
     return $true
 }
 
 function Set-OverlayValue {
     # Devolve $true se o HKLM estava diferente. So o HKLM conta para a decisao
     # porque e so ele que muda o que o Explorer desenha.
-    $mudou = $false
+    $changed = $false
     foreach ($key in $ShellIconsKeys) {
-        $atual = (Get-ItemProperty -Path $key -Name $OverlayIndex `
+        $current = (Get-ItemProperty -Path $key -Name $OverlayIndex `
             -ErrorAction SilentlyContinue).$OverlayIndex
-        if ($atual -ne $IconValue -and $key -like 'HKLM:*') {
-            $mudou = $true
+        if ($current -ne $IconValue -and $key -like 'HKLM:*') {
+            $changed = $true
         }
         if (-not (Test-Path $key)) {
             New-Item -Path $key -Force | Out-Null
@@ -145,7 +145,7 @@ function Set-OverlayValue {
         New-ItemProperty -Path $key -Name $OverlayIndex -Value $IconValue `
             -PropertyType String -Force | Out-Null
     }
-    return $mudou
+    return $changed
 }
 
 function Reset-IconCache {
@@ -159,13 +159,13 @@ function Reset-IconCache {
     # a tarefa do /insist, que roda como SYSTEM, e quem respondeu ao UAC com
     # OUTRA conta de administrador -- nos dois casos o $env:LOCALAPPDATA daqui
     # nao e o de quem esta na frente da tela.
-    $locais = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' |
+    $profileDirs = @(Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' |
         Where-Object { $_.PSChildName -like 'S-1-5-21-*' } |
         ForEach-Object { Join-Path $_.GetValue('ProfileImagePath') 'AppData\Local' })
-    foreach ($local in ($locais + $env:LOCALAPPDATA | Select-Object -Unique)) {
-        Get-ChildItem "$local\Microsoft\Windows\Explorer" -Filter 'iconcache*' `
+    foreach ($localAppData in ($profileDirs + $env:LOCALAPPDATA | Select-Object -Unique)) {
+        Get-ChildItem "$localAppData\Microsoft\Windows\Explorer" -Filter 'iconcache*' `
             -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-        Remove-Item "$local\IconCache.db" -Force -ErrorAction SilentlyContinue
+        Remove-Item "$localAppData\IconCache.db" -Force -ErrorAction SilentlyContinue
     }
 
     # 'thumbcache*' fica de fora. Sao as miniaturas de foto e video, nao tem
@@ -208,9 +208,9 @@ if (-not (Test-IsAdmin)) {
     # 1, arquivo e HKLM corretos significam overlay invisivel, porque o cache
     # nao tem mais como estraga-lo. Com o icone de alfa 0 (ate a v1.1.3) isso
     # nao era verdade, e essa mesma checagem ja causou regressao uma vez.
-    $mudouIcone = Install-OverlayIcon
-    $mudouRegistro = Set-OverlayValue
-    if ($mudouIcone -or $mudouRegistro) {
+    $iconChanged = Install-OverlayIcon
+    $registryChanged = Set-OverlayValue
+    if ($iconChanged -or $registryChanged) {
         Reset-IconCache
     }
 } else {

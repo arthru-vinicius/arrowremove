@@ -4,7 +4,7 @@
   que o Explorer o recebe do cache de icones. NAO e servido pelo site e nao
   muda nada na maquina: so le.
 
-      powershell -NoProfile -ExecutionPolicy Bypass -File tools\diagnostico-overlay.ps1
+      powershell -NoProfile -ExecutionPolicy Bypass -File tools\diagnose-overlay.ps1
 
   Rode como o usuario que esta vendo o problema, SEM elevar: o cache de
   icones e por usuario, e um processo elevado com outra conta leria o cache
@@ -89,12 +89,12 @@ namespace ArrowRemove {
         BITMAP bm; GetObject(ii.hbmColor, Marshal.SizeOf(typeof(BITMAP)), out bm);
         int w = bm.bmWidth, h = bm.bmHeight, n = w * h;
         byte[] c = Bits(ii.hbmColor, w, h), m = Bits(ii.hbmMask, w, h);
-        int maxA = 0, forte = 0, opaca = 0;
+        int maxAlpha = 0, strongAlpha = 0, opaqueMask = 0;
         for (int p = 0; p < n; p++) {
-          int a = c[p*4+3]; if (a > maxA) maxA = a; if (a >= 16) forte++;
-          if (m[p*4] == 0 && m[p*4+1] == 0 && m[p*4+2] == 0) opaca++;
+          int a = c[p*4+3]; if (a > maxAlpha) maxAlpha = a; if (a >= 16) strongAlpha++;
+          if (m[p*4] == 0 && m[p*4+1] == 0 && m[p*4+2] == 0) opaqueMask++;
         }
-        return new[] { maxA > 0 ? forte : opaca, n, maxA, opaca };
+        return new[] { maxAlpha > 0 ? strongAlpha : opaqueMask, n, maxAlpha, opaqueMask };
       } finally { DeleteObject(ii.hbmColor); DeleteObject(ii.hbmMask); }
     }
   }
@@ -103,23 +103,23 @@ namespace ArrowRemove {
 
 [ArrowRemove.Overlay]::FileIconInit($true) | Out-Null
 
-$quebrado = $false
-foreach ($lista in @(@(1, 16), @(0, 32), @(2, 48), @(4, 256))) {
-    $r = [ArrowRemove.Overlay]::Measure($lista[0])
-    if (-not $r) {
-        Write-Host ("{0,3}px: overlay de atalho nao encontrado" -f $lista[1]) -ForegroundColor Yellow
+$broken = $false
+foreach ($entry in @(@(1, 16), @(0, 32), @(2, 48), @(4, 256))) {
+    $result = [ArrowRemove.Overlay]::Measure($entry[0])
+    if (-not $result) {
+        Write-Host ("{0,3}px: overlay de atalho nao encontrado" -f $entry[1]) -ForegroundColor Yellow
         continue
     }
-    $estado = if ($r[0] -eq 0) { 'invisivel' } else { $quebrado = $true; 'VISIVEL' }
+    $status = if ($result[0] -eq 0) { 'invisivel' } else { $broken = $true; 'VISIVEL' }
     Write-Host ("{0,3}px: {1} -- {2} de {3} pixels visiveis (alfa maximo {4}, mascara opaca em {5})" -f `
-        $lista[1], $estado, $r[0], $r[1], $r[2], $r[3])
+        $entry[1], $status, $result[0], $result[1], $result[2], $result[3])
 }
 
-$valor = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' `
+$value = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' `
     -Name 29 -ErrorAction SilentlyContinue).'29'
-Write-Host "HKLM Shell Icons\29: $(if ($valor) { $valor } else { '(sem valor -- seta padrao)' })"
+Write-Host "HKLM Shell Icons\29: $(if ($value) { $value } else { '(sem valor -- seta padrao)' })"
 
-if ($quebrado) {
+if ($broken) {
     Write-Host 'Diagnostico: o overlay de atalho aparece (seta ou quadrado preto).' -ForegroundColor Red
 } else {
     Write-Host 'Diagnostico: overlay de atalho invisivel em todos os tamanhos.' -ForegroundColor Green
